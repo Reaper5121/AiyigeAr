@@ -1,0 +1,952 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aiyige Admin Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script type="module" src="https://unpkg.com/@google/model-viewer@4.0.0/dist/model-viewer.min.js"></script>
+  <script src="auth-bridge.js" defer></script>
+</head>
+<body>
+  <div class="login-screen" id="loginScreen">
+    <div class="login-card">
+      <div class="brand-row">
+        <img src="./client%20logo.jpg" alt="Aiyige logo" class="brand-logo" />
+        <div>
+          <p class="eyebrow">Access Portal</p>
+          <h1>Aiyige Access</h1>
+        </div>
+      </div>
+      <form id="loginForm" class="login-form">
+        <label>
+          Username
+          <input type="text" id="username" autocomplete="username" />
+        </label>
+        <label>
+          Password
+          <input type="password" id="password" autocomplete="current-password" />
+        </label>
+        <button type="submit" class="primary-btn">Sign In</button>
+      </form>
+      <div id="firstAdminSetup" class="login-setup hidden">
+        <p class="login-copy">Set up the first administrator account for this installation.</p>
+        <form id="firstAdminSetupForm" class="login-form">
+          <label>Administrator name<input name="displayName" autocomplete="name" required /></label>
+          <label>Username<input name="username" autocomplete="username" required /></label>
+          <label>Password<input name="password" type="password" autocomplete="new-password" minlength="12" required /></label>
+          <label>Confirm password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required /></label>
+          <button type="submit" class="primary-btn">Create Administrator</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-shell hidden" id="appShell">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <img src="./client%20logo.jpg" alt="Aiyige logo" />
+        <div>
+          <span>Aiyige</span>
+          <small>Hardware & Construction</small>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <div class="nav-indicator" aria-hidden="true"></div>
+        <button class="nav-item active" data-view="dashboard">Dashboard</button>
+        <button class="nav-item" data-view="inventory">Inventory</button>
+        <button class="nav-item" data-view="quotations">Order Quotations</button>
+        <button class="nav-item" data-view="sales">Sales</button>
+        <button class="nav-item" data-view="payments">Payments</button>
+        <button class="nav-item" data-view="courier">Courier Updates</button>
+        <button class="nav-item" data-view="staffs">Employee Information</button>
+        <button class="nav-item" data-view="settings">Settings</button>
+      </nav>
+
+      <div class="sidebar-card">
+        <p class="sidebar-title">System Status</p>
+        <div class="status-pill success">Online</div>
+        <p class="sidebar-note">Inventory synced 2 minutes ago.</p>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Admin Dashboard</p>
+          <h2 id="pageTitle">Overview</h2>
+        </div>
+        <div class="topbar-actions">
+          <div class="profile-chip">
+            <img src="./client%20logo.jpg" alt="Profile" />
+            <div>
+              <strong id="profileName">Admin User</strong>
+              <small id="profileRole">Authorized Staff</small>
+            </div>
+          </div>
+          <button class="ghost-btn" id="logoutBtn">Logout</button>
+        </div>
+      </header>
+
+      <section class="content" data-section="dashboard">
+        <section class="role-dashboard admin-dashboard">
+          <div class="role-dashboard-head">
+            <div><p class="eyebrow">Administration</p><h2>User Management Dashboard</h2><p class="section-copy">Monitor account access and manage platform users.</p></div>
+            <button class="primary-btn" id="adminDashboardUsersBtn" type="button">Manage Users</button>
+          </div>
+          <div class="role-dashboard-metrics">
+            <article><span>Total Users</span><strong id="adminDashboardUsers">0</strong><small>Managed accounts</small></article>
+            <article><span>Active Users</span><strong id="adminDashboardActiveUsers">0</strong><small>Active access</small></article>
+            <article><span>Sales Staff</span><strong id="adminDashboardSalesStaff">0</strong><small>Sales accounts</small></article>
+            <article><span>Inventory Staff</span><strong id="adminDashboardInventoryStaff">0</strong><small>Inventory accounts</small></article>
+          </div>
+        </section>
+        <section class="role-dashboard sales-staff-dashboard">
+          <div class="role-dashboard-head">
+            <div><p class="eyebrow">Sales Operations</p><h2>Sales Staff Dashboard</h2><p class="section-copy">Review customer orders, verify payments, and manage deliveries.</p></div>
+            <div class="role-dashboard-actions"><button class="ghost-btn" id="salesDashboardProductsBtn" type="button">Products</button><button class="primary-btn" id="salesDashboardQuoteBtn" type="button">View Orders</button></div>
+          </div>
+          <div class="role-dashboard-metrics">
+            <article><span>Quotations</span><strong id="salesDashboardQuotes">0</strong><small>Customer orders</small></article>
+            <article><span>Customer Records</span><strong id="salesDashboardCustomers">0</strong><small>Available accounts</small></article>
+            <article><span>Orders</span><strong id="salesDashboardOrders">0</strong><small>Order records</small></article>
+            <article><span>Products</span><strong id="salesDashboardProducts">0</strong><small>Product information</small></article>
+          </div>
+          <div class="sales-dashboard-operations">
+            <section class="operations-card"><div class="operations-card-head"><div><p class="eyebrow">Customer orders</p><h3>Generated quotations</h3></div><button class="secondary-btn small" id="salesDashboardOpenQuotesBtn" type="button">Open quotations</button></div><div id="salesStaffDashboardQueue" class="dashboard-queue-list"></div></section>
+            <section class="operations-card"><div class="operations-card-head"><div><p class="eyebrow">Payments</p><h3>Pending payments</h3></div><button class="secondary-btn small" id="salesDashboardOpenPaymentsBtn" type="button">View all</button></div><div id="salesStaffDashboardPayments" class="dashboard-payment-list"></div></section>
+          </div>
+        </section>
+        <section class="role-dashboard sales-manager-dashboard">
+          <div class="role-dashboard-head">
+            <div><p class="eyebrow">Sales Manager</p><h2>Sales Manager Dashboard</h2><p class="section-copy">Monitor quotation performance, payments, deliveries, and team activity.</p></div>
+            <div class="role-dashboard-actions"><button class="ghost-btn" id="salesManagerQuotesBtn" type="button">Quotations</button><button class="primary-btn" id="salesManagerReportsBtn" type="button">Sales reports</button></div>
+          </div>
+          <div class="role-dashboard-metrics">
+            <article><span>Total sales</span><strong id="salesManagerTotalSales">â‚±0</strong><small>Recorded payments</small></article>
+            <article><span>Generated quotations</span><strong id="salesManagerPendingQuotes">0</strong><small>Available to view</small></article>
+            <article><span>Awaiting payments</span><strong id="salesManagerAwaitingPayments">0</strong><small>Payment follow-up</small></article>
+            <article><span>Active deliveries</span><strong id="salesManagerActiveDeliveries">0</strong><small>Courier progress</small></article>
+          </div>
+          <div class="sales-dashboard-operations">
+            <section class="operations-card"><div class="operations-card-head"><div><p class="eyebrow">Quotation archive</p><h3>Latest generated quotations</h3></div><button class="secondary-btn small" id="salesManagerOpenQuotesBtn" type="button">View quotations</button></div><div id="salesManagerQuoteQueue" class="dashboard-queue-list"></div></section>
+            <section class="operations-card"><div class="operations-card-head"><div><p class="eyebrow">Delivery monitoring</p><h3>Courier activity</h3></div><button class="secondary-btn small" id="salesManagerOpenCourierBtn" type="button">View courier</button></div><div id="salesManagerCourierSummary" class="dashboard-payment-list"></div></section>
+          </div>
+        </section>
+        <section class="inventory-staff-dashboard">
+          <div class="inventory-staff-dashboard-head">
+            <div><p class="eyebrow">Inventory Operations</p><h2>Inventory Staff Dashboard</h2><p class="section-copy">Keep product information accurate and resolve stock alerts before sales teams quote customers.</p></div>
+            <div class="inventory-dashboard-actions"><button class="primary-btn" type="button" data-staff-action="inventory">Open Inventory</button></div>
+          </div>
+          <div class="inventory-dashboard-metrics">
+            <article class="inventory-dashboard-metric">
+              <span>Total Products</span>
+              <strong id="inventoryDashboardProductCount">0</strong>
+              <small>Product records</small>
+            </article>
+            <article class="inventory-dashboard-metric inventory-dashboard-metric-warning">
+              <span>Low Stock</span>
+              <strong id="inventoryDashboardLowStock">0</strong>
+              <small>Needs attention</small>
+            </article>
+            <article class="inventory-dashboard-metric inventory-dashboard-metric-danger">
+              <span>Out of Stock</span>
+              <strong id="inventoryDashboardOutOfStock">0</strong>
+              <small>Requires restock</small>
+            </article>
+            <article class="inventory-dashboard-metric">
+              <span>Total Units</span>
+              <strong id="inventoryDashboardUnits">0</strong>
+              <small>Across all products</small>
+            </article>
+          </div>
+          <div class="inventory-dashboard-context-grid">
+            <section class="inventory-dashboard-context-card">
+              <div class="inventory-dashboard-context-head">
+                <div>
+                  <p class="eyebrow">Attention Needed</p>
+                  <h3>Stock Alerts</h3>
+                </div>
+                <button class="ghost-btn small" id="inventoryDashboardAlertsBtn" type="button">Open Inventory</button>
+              </div>
+              <div id="inventoryDashboardAlerts" class="inventory-dashboard-alerts"></div>
+            </section>
+            <section class="inventory-dashboard-context-card">
+              <div>
+                <p class="eyebrow">Catalog Overview</p>
+                <h3>Products by Category</h3>
+              </div>
+              <div id="inventoryDashboardCategories" class="inventory-dashboard-categories"></div>
+            </section>
+          </div>
+        </section>
+        <section class="role-dashboard owner-dashboard">
+          <div class="role-dashboard-head">
+            <div><p class="eyebrow">Owner Overview</p><h2>Business Dashboard</h2><p class="section-copy">Review business performance, stock health, and team information.</p></div>
+            <div class="role-dashboard-actions"><button class="ghost-btn" id="ownerDashboardInventoryBtn" type="button">Inventory</button><button class="primary-btn" id="ownerDashboardSalesBtn" type="button">Sales Reports</button></div>
+          </div>
+          <div class="role-dashboard-metrics">
+            <article><span>Total Sales</span><strong id="ownerDashboardSales">â‚±0</strong><small>Recorded sales</small></article>
+            <article><span>Low Stock</span><strong id="ownerDashboardLowStock">0</strong><small>Needs attention</small></article>
+            <article><span>Products</span><strong id="ownerDashboardProducts">0</strong><small>Catalog records</small></article>
+            <article><span>Employees</span><strong id="ownerDashboardEmployees">0</strong><small>Team records</small></article>
+          </div>
+        </section>
+        <div class="kpi-grid">
+          <article class="kpi-card accent actionable" role="button" tabindex="0" data-kpi-target="sales">
+            <span>Total Sales</span>
+            <strong id="totalSales">â‚±0</strong>
+            <small>No sales yet</small>
+          </article>
+          <article class="kpi-card actionable" role="button" tabindex="0" data-kpi-target="payments">
+            <span>Paid Orders</span>
+            <strong id="paidOrders">0</strong>
+            <small>No completed orders</small>
+          </article>
+          <article class="kpi-card actionable" role="button" tabindex="0" data-kpi-target="quotations">
+            <span>Generated Quotations</span>
+            <strong id="pendingQuotes">0</strong>
+            <small>Waiting for activity</small>
+          </article>
+          <article class="kpi-card actionable" role="button" tabindex="0" data-kpi-target="inventory">
+            <span>Low Stock Items</span>
+            <strong id="lowStock">0</strong>
+            <small>No low stock items</small>
+          </article>
+        </div>
+
+        <div class="dashboard-grid">
+          <section class="panel chart-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Revenue</p>
+                <h3>Monthly Sales Trend</h3>
+              </div>
+              <div class="sales-period-controls">
+                <label>
+                  Month
+                  <select id="salesMonth"></select>
+                </label>
+                <label>
+                  Year
+                  <select id="salesYear"></select>
+                </label>
+              </div>
+            </div>
+            <div class="bar-chart" id="salesChart"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Payments</p>
+                <h3>Payment Breakdown</h3>
+              </div>
+            </div>
+            <div class="donut-wrap">
+              <div class="donut" id="paymentDonut">
+                <div class="donut-segments" id="paymentDonutSegments" aria-hidden="true"></div>
+                <div class="donut-center">
+                  <strong>â‚±0</strong>
+                  <small>Collected</small>
+                </div>
+              </div>
+              <div class="legend">
+                <div><span class="swatch cash"></span><span class="legend-label">Cash</span><strong>0%</strong></div>
+                <div><span class="swatch gcash"></span><span class="legend-label">GCash</span><strong>0%</strong></div>
+                <div><span class="swatch bank"></span><span class="legend-label">Bank Transfer</span><strong>0%</strong></div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Recent Activity</p>
+              <h3>Orders and Payment Updates</h3>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="accounts-table">
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th>Account</th>
+                  <th>Products</th>
+                  <th>Amount</th>
+                  <th>Payment</th>
+                  <th>Status</th>
+                  <th>Customer courier / tracking reference</th>
+                  <th>Delivery Update</th>
+                </tr>
+              </thead>
+              <tbody id="ordersTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel room-captures-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Room References</p>
+              <h3>Saved Room Captures</h3>
+              <p class="panel-copy">Account room photos attached from the mobile AR preview flow.</p>
+            </div>
+            <div class="chip-row">
+              <span class="status-pill success" id="roomCaptureCount">0 captures</span>
+              <button class="secondary-btn small" id="roomCaptureRefreshBtn" type="button">Refresh Captures</button>
+              <button class="action-btn action-btn-delete action-btn-small" id="roomCaptureDeleteAllBtn" type="button">
+                <span class="action-btn-icon" aria-hidden="true">Ã—</span>
+                <span>Delete All</span>
+              </button>
+            </div>
+          </div>
+          <div class="room-capture-grid" id="roomCaptureGrid"></div>
+        </section>
+      </section>
+
+      <section class="content hidden" data-section="courier">
+        <div class="section-hero operations-hero"><div><p class="eyebrow">Sales Staff Dashboard</p><h2>Delivery updates</h2><p class="section-copy">Customers select J&amp;T or Lalamove at checkout. Staff can record external delivery progress.</p></div></div>
+        <div class="operations-metrics" id="courierMetrics"></div>
+        <div class="courier-layout">
+          <section class="operations-card courier-orders-card"><div class="operations-card-head"><div><p class="eyebrow">Delivery timeline</p><h3>All orders</h3></div><div class="filter-chips" id="courierFilters"></div></div><div id="courierTimelineList" class="courier-timeline-list"></div></section>
+          <aside class="courier-side-stack"><section class="operations-card" id="courierSummary"></section></aside>
+        </div>
+      </section>
+
+      <section class="content hidden" data-section="inventory">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Inventory</p>
+              <h3>Product Records</h3>
+            </div>
+            <button class="primary-btn small" id="newItemBtn">Add Product</button>
+          </div>
+          <div class="inventory-tools">
+            <label>
+              Search Product
+              <input id="inventorySearch" type="search" placeholder="Search by code, name, or category" />
+            </label>
+            <label>
+              Category Filter
+              <select id="inventoryCategoryFilter">
+                <option value="all">All Categories</option>
+              </select>
+            </label>
+            <label>
+              Type Filter
+              <select id="inventoryTypeFilter">
+                <option value="all">All Types</option>
+              </select>
+            </label>
+            <label>
+              Availability
+              <select id="inventoryAvailabilityFilter">
+                <option value="all">All Availability</option>
+                <option value="In Stock">In Stock</option>
+                <option value="Low Stock">Low Stock</option>
+                <option value="Out of Stock">Out of Stock</option>
+              </select>
+            </label>
+          </div>
+          <div class="table-wrap inventory-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Type</th>
+                  <th>Dimensions</th>
+                  <th>Material</th>
+                  <th>Boxes / pcs</th>
+                  <th>Price / m</th>
+                  <th>Availability</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="inventoryTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="content hidden" data-section="staffs">
+        <div class="section-hero settings-hero">
+          <div>
+            <p class="eyebrow">Team Access</p>
+            <h2>Employee Information</h2>
+            <p class="section-copy">Add team members, assign the role they need, and review account access from one simple list.</p>
+          </div>
+        </div>
+
+        <section class="panel staff-management-panel">
+          <div class="user-management-toolbar">
+            <label class="user-search-field">
+              <span aria-hidden="true">âŒ•</span>
+              <input id="userSearchInput" type="search" placeholder="Search users" />
+            </label>
+            <label>
+              <span class="sr-only">Filter by role</span>
+              <select id="userRoleFilter">
+                <option value="all">All roles</option>
+                <option value="admin">Admin</option>
+                <option value="sales_staff">Sales Staff</option>
+                <option value="sales_manager">Sales Manager</option>
+                <option value="inventory_staff">Inventory Staff</option>
+              </select>
+            </label>
+            <label>
+              <span class="sr-only">Filter by status</span>
+              <select id="userStatusFilter">
+                <option value="all">All status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="suspended">Suspended</option>
+                <option value="banned">Banned</option>
+                <option value="pending">Pending</option>
+              </select>
+            </label>
+            <label>
+              <span class="sr-only">Sort by date</span>
+              <select id="userDateSort">
+                <option value="recent">Recently active</option>
+                <option value="joined">Joined date</option>
+                <option value="name">Name</option>
+              </select>
+            </label>
+            <div class="user-management-toolbar-actions">
+              <button class="secondary-btn" id="openStaffModalBtn" type="button">ï¼‹ Add User</button>
+            </div>
+          </div>
+          <div class="user-table-wrap">
+            <table class="user-management-table">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" id="selectAllUsers" aria-label="Select all users" /></th>
+                  <th>Full Name</th>
+                  <th>Email</th>
+                  <th>Username</th>
+                  <th>Status</th>
+                  <th>Role</th>
+                  <th>Joined Date</th>
+                  <th>Last Active</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="staffAccountsList"></tbody>
+            </table>
+          </div>
+          <div class="user-table-footer">
+            <span id="staffAccountsCount">0 users</span>
+            <span id="userResultsSummary">0 users</span>
+          </div>
+        </section>
+        <section class="role-dashboard sales-manager-dashboard">
+          <div class="role-dashboard-head">
+            <div><p class="eyebrow">Sales Operations</p><h2>Sales Manager Dashboard</h2><p class="section-copy">Monitor quotations, customer orders, sales transactions, and branch performance.</p></div>
+            <div class="role-dashboard-actions"><button class="ghost-btn" id="salesManagerQuotesBtn" type="button">Quotations</button><button class="primary-btn" id="salesManagerReportsBtn" type="button">Sales Reports</button></div>
+          </div>
+          <div class="role-dashboard-metrics">
+            <article><span>Generated Quotations</span><strong id="salesManagerQuotes">0</strong><small>Available to view</small></article>
+            <article><span>Total Orders</span><strong id="salesManagerOrders">0</strong><small>Customer order records</small></article>
+            <article><span>Completed Orders</span><strong id="salesManagerCompleted">0</strong><small>Closed or delivered</small></article>
+            <article><span>Sales Transactions</span><strong id="salesManagerTransactions">0</strong><small>Recorded activity</small></article>
+          </div>
+        </section>
+      </section>
+
+      <section class="content hidden" data-section="quotations">
+        <div class="section-hero quote-hero">
+          <div>
+            <p class="eyebrow">Sales operations</p>
+            <h2>Quotation</h2>
+            <p class="section-copy">Browse quotations issued by the mobile app and print confirmed orders for item preparation.</p>
+          </div>
+          <div class="quote-hero-status">
+            <span class="status-pill success" id="quoteWorkflowStatus">Read-only</span>
+            <small id="quoteWorkflowHint">Select an order</small>
+          </div>
+        </div>
+
+        <div class="quote-layout">
+          <div class="quote-workflow" hidden aria-label="Quotation workflow">
+            <button class="quote-workflow-step active" type="button" data-quote-step="1">
+              <span>01</span><strong>Customer</strong><small>Request context</small>
+            </button>
+            <span class="quote-workflow-line" aria-hidden="true"></span>
+            <button class="quote-workflow-step" type="button" data-quote-step="2">
+              <span>02</span><strong>Products &amp; pricing</strong><small>Build the quote</small>
+            </button>
+            <span class="quote-workflow-line" aria-hidden="true"></span>
+            <button class="quote-workflow-step" type="button" data-quote-step="3">
+              <span>03</span><strong>View &amp; print</strong><small>Read-only quotation</small>
+            </button>
+          </div>
+          <section class="panel quote-builder-panel" hidden>
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Step 1â€“2 Â· Customer request</p>
+                <h3>Prepare the offer</h3>
+                <p class="panel-copy">The customer and request are carried into the quotation. Add one or more products, then adjust quantity, price, and discount.</p>
+              </div>
+            </div>
+            <form id="quoteForm" class="quote-form">
+              <div class="hidden quote-system-fields quote-account-fields">
+                <input id="quoteNumber" type="text" readonly />
+                <input id="quoteDateIssued" type="text" readonly />
+                <input id="quotePreparedBy" type="text" readonly />
+                <input id="quoteFirstName" autocomplete="given-name" />
+                <input id="quoteMiddleInitial" maxlength="1" autocomplete="additional-name" />
+                <input id="quoteLastName" autocomplete="family-name" />
+                <input id="quoteStreetAddress" autocomplete="street-address" />
+                <input id="quoteCityProvince" autocomplete="address-level2" />
+                <input id="quotePostalCode" autocomplete="postal-code" />
+                <input id="quoteContactNumber" type="tel" autocomplete="tel" />
+                <input id="quoteEmailAddress" type="email" autocomplete="email" />
+                <select id="quoteUom">
+                  <option value="box">box</option>
+                  <option value="sqm">sqm</option>
+                </select>
+              </div>
+
+              <div class="quote-section-card quote-item-card">
+                <div class="quote-card-head">
+                  <div>
+                    <h4>Products &amp; pricing</h4>
+                    <p>Quotation details are captured from the customer order and cannot be edited.</p>
+                  </div>
+                </div>
+                <div class="quote-item-grid">
+                  <label class="wide">
+                    <span id="quotePanelLabel" class="field-label">Product</span>
+                    <select id="quotePanel"></select>
+                  </label>
+                  <label>
+                    <span id="quoteQtyLabel" class="field-label">Qty</span>
+                    <input id="quoteQty" type="number" min="1" value="1" required />
+                  </label>
+                  <label>
+                    <span id="quoteUnitPriceLabel" class="field-label">Unit Price</span>
+                    <input id="quoteUnitPrice" type="text" value="" placeholder="Select a product" />
+                  </label>
+                  <label>
+                    <span id="quoteDiscountLabel" class="field-label">Discount %</span>
+                    <input id="quoteDiscount" type="number" min="0" max="100" value="0" />
+                  </label>
+                </div>
+                <div class="quote-mini-meta compact">
+                  <label>
+                    <span class="field-label">Request Source</span>
+                    <select id="quoteSource">
+                      <option value="Catalog">Catalog</option>
+                      <option value="AR">AR Visualization</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span id="quoteValidUntilLabel" class="field-label">Valid Until</span>
+                    <input id="quoteValidUntil" type="date" />
+                  </label>
+                  <label>
+                    <span id="quoteNumberLabel" class="field-label">Quotation Number</span>
+                    <strong id="quoteNumberDisplay" class="quote-mini-value">--</strong>
+                  </label>
+                </div>
+                <div class="form-actions quote-form-actions">
+                <button class="primary-btn" id="addQuoteItemBtn" type="submit">Add product to quote</button>
+                </div>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel quote-summary-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Mobile quotations</p>
+                <h3>Customers with quotations</h3>
+              </div>
+            </div>
+            <div id="quotationQueue" class="quotation-queue quotation-customer-list" aria-live="polite"></div>
+            <div id="quotationDetailModal" class="quotation-detail-overlay" hidden>
+              <section class="quotation-detail-dialog" role="dialog" aria-modal="true" aria-label="Quotation details">
+                <div class="quotation-detail-heading">
+                  <div class="quotation-document-brand">
+                    <img id="quotationDocumentLogo" alt="Aiyige logo" />
+                    <div><strong>Aiyige Hardware &amp; Construction</strong><span>Official customer quotation</span></div>
+                  </div>
+                  <button class="secondary-btn" id="closeQuotationDetails" type="button" aria-label="Close quotation details">Close</button>
+                </div>
+              <div class="quote-summary">
+              <h2 class="quotation-document-title">Official Quotation</h2>
+              <div id="quoteMeta" class="quote-meta">Select an order to view its generated quotation.</div>
+              <div id="quoteCustomerStatus" class="quote-customer-status" aria-live="polite"></div>
+              <div class="table-wrap quote-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Qty</th>
+                      <th>Unit Price / m</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="quoteTable"></tbody>
+                </table>
+              </div>
+
+              <div class="totals">
+                <div><span>Subtotal</span><strong id="quoteSubtotal">â‚±0</strong></div>
+                <div hidden><span>Discount amount</span><strong id="quoteDiscountAmount">â‚±0</strong></div>
+                <div hidden><span>VAT (12%)</span><strong id="quoteVat">â‚±0</strong></div>
+                <div class="grand"><span>Grand Total</span><strong id="quoteTotal">â‚±0</strong></div>
+              </div>
+
+              <div class="quote-item-grid quote-commercial-fields" hidden>
+                <label>
+                  <span class="field-label">Delivery Cost</span>
+                  <input id="quoteDeliveryCost" type="number" min="0" step="0.01" value="0" placeholder="0" />
+                </label>
+                <label>
+                  <span class="field-label">Courier</span>
+                  <select id="quoteCourier">
+                    <option value="">Select courier</option>
+                    <option value="Lalamove">Lalamove</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="quote-summary-footer">
+                <button class="primary-btn" id="printQuoteBtn" type="button" disabled>Print for preparation</button>
+                <div hidden aria-hidden="true">
+                  <button id="saveQuotationBtn" type="button"></button>
+                  <button id="recordQuotePaymentBtn" type="button"></button>
+                  <button id="markQuotePaidBtn" type="button"></button>
+                  <button id="clearQuotationBtn" type="button"></button>
+                </div>
+              </div>
+
+              <p class="quote-status-note" id="exportStatus">Ready.</p>
+              </div>
+              </section>
+            </div>
+          </section>
+
+        </div>
+      </section>
+
+      <section class="content hidden" data-section="sales">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Sales</p>
+              <h3>Sales Performance</h3>
+            </div>
+            <div class="chip-row">
+              <span class="status-pill success">Hot</span>
+              <span class="status-pill warning">Lead Conversion 0%</span>
+            </div>
+          </div>
+          <div class="sales-period-panel">
+            <div class="sales-period-copy">
+              <p class="eyebrow">Period View</p>
+              <h4 id="salesPeriodLabel">--</h4>
+              <p class="sales-period-note">Switch the month and year to refresh the sales cards and recent sales list.</p>
+            </div>
+            <div class="sales-period-controls compact">
+              <div class="month-strip" id="salesViewMonthStrip" aria-label="Sales month selector"></div>
+              <label class="year-picker">
+                Year
+                <select id="salesViewYear"></select>
+              </label>
+            </div>
+          </div>
+          <div class="sales-grid">
+            <article class="mini-card actionable sales-today-card" id="salesTodayCard" role="button" tabindex="0">
+              <span>Today</span>
+              <strong id="salesTodayValue">â‚±0</strong>
+              <small id="salesTodayMeta">0 transactions</small>
+            </article>
+            <article class="mini-card">
+              <span>This Week</span>
+              <strong id="salesWeekValue">â‚±0</strong>
+              <small id="salesWeekMeta">No activity this week</small>
+            </article>
+            <article class="mini-card">
+              <span>This Month</span>
+              <strong id="salesMonthValue">â‚±0</strong>
+              <small id="salesMonthMeta">No sales recorded</small>
+            </article>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Invoice No.</th>
+                  <th>Account</th>
+                  <th>Service</th>
+                  <th>Method</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="salesTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="content hidden" data-section="payments">
+        <div class="section-hero">
+          <div>
+            <p class="eyebrow">Sales Staff Dashboard</p>
+            <h2>Payments</h2>
+            <p class="section-copy">Review payment history and record incoming customer payments.</p>
+          </div>
+        </div>
+
+        <div class="operations-metrics" id="paymentOperationsMetrics"></div>
+        <section class="operations-card payments-table-card">
+          <div class="operations-card-head">
+            <div><p class="eyebrow">Financial records</p><h3>Payment History</h3></div>
+            <div class="operations-toolbar"><input id="paymentsSearch" type="search" placeholder="Search by name or quotation ID..." /><div class="filter-chips" id="paymentFilters"></div></div>
+          </div>
+          <div class="table-wrap"><table class="operations-table"><thead><tr><th>Order ref</th><th>Customer</th><th>Method</th><th>Amount</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead><tbody id="paymentsOperationsTable"></tbody></table></div>
+        </section>
+      </section>
+
+            <section class="content hidden" data-section="settings">
+        <div class="section-hero settings-hero">
+          <div>
+            <p class="eyebrow">Configuration Center</p>
+            <h2>Admin Settings</h2>
+          </div>
+        </div>
+
+        <div class="settings-layout">
+          <div class="settings-stack">
+            <section class="panel settings-panel">
+              <div class="panel-head settings-panel-head">
+                <div>
+                  <p class="eyebrow">Appearance</p>
+                  <h3>Display Preferences</h3>
+                </div>
+              </div>
+              <div class="settings-grid settings-grid-two">
+                <div class="setting-card">
+                  <h4>Theme Mode</h4>
+                  <label class="setting-switch">
+                    <input type="checkbox" id="themeToggle" />
+                    <span class="setting-switch-ui" aria-hidden="true"></span>
+                    <span class="setting-switch-copy">
+                      <strong>Dark mode</strong>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel settings-panel">
+              <div class="panel-head settings-panel-head">
+                <div>
+                  <p class="eyebrow">Localization</p>
+                </div>
+              </div>
+              <div class="settings-grid settings-grid-two">
+                <div class="setting-card">
+                  <h4>Language Preference</h4>
+                  <label>
+                    <span class="setting-field-label">Language</span>
+                    <select id="languageSelect">
+                      <option value="English">English</option>
+                      <option value="Filipino">Filipino</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </section>
+
+          </div>
+        </div>
+      </section>
+    </main>
+    </main>
+  </div>
+
+      <div class="modal hidden" id="salesDayModal" aria-hidden="true">
+        <div class="modal-card modal-card-large sales-day-modal-card">
+          <div class="modal-toolbar sales-day-modal-toolbar">
+            <div>
+              <p class="eyebrow">Sales Drilldown</p>
+              <h3 id="salesDayModalPeriod">--</h3>
+              <p class="editor-copy">Pick a day from the selected month and year to review detailed transactions.</p>
+            </div>
+            <button class="ghost-btn sales-modal-close" type="button" id="closeSalesDayModalBtn">Close</button>
+          </div>
+          <div class="sales-day-summary">
+            <div>
+              <span>Selected Day</span>
+              <strong id="salesDayLabel">Day 1</strong>
+            </div>
+            <div>
+              <span>Total Transactions</span>
+              <strong id="salesDayCount">0</strong>
+            </div>
+            <div>
+              <span>Total Sales</span>
+              <strong id="salesDayTotal">â‚±0</strong>
+            </div>
+          </div>
+          <div class="sales-day-picker" id="salesDayPicker" aria-label="Select day"></div>
+          <div class="table-wrap sales-day-table-wrap">
+            <table class="sales-day-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Invoice No.</th>
+                  <th>Account</th>
+                  <th>Method</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody id="salesDayTransactions"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal hidden" id="staffModal" aria-hidden="true">
+        <div class="modal-card staff-modal-card">
+          <div class="modal-toolbar">
+            <div>
+              <p class="eyebrow">Team Access</p>
+              <h3 id="staffModalTitle">Create Staff</h3>
+              <p class="editor-copy" id="staffModalCopy">Add an employee account or update access settings.</p>
+            </div>
+            <button class="ghost-btn" type="button" id="closeStaffModalBtn">Close</button>
+          </div>
+          <form id="staffAccountForm" class="settings-form staff-modal-form">
+            <input type="hidden" id="staffEditingId" value="" />
+            <input type="hidden" id="staffMode" value="create" />
+            <label>
+              <span class="setting-field-label">Display name</span>
+              <input id="staffDisplayNameInput" type="text" placeholder="Staff name" />
+            </label>
+            <label>
+              <span class="setting-field-label">Username</span>
+              <input id="staffUsernameInput" type="text" placeholder="staff3" />
+            </label>
+            <label>
+              <span class="setting-field-label">Email</span>
+              <input id="staffEmailInput" type="email" placeholder="employee@example.com" autocomplete="email" required />
+            </label>
+            <label>
+              <span class="setting-field-label">Role / access group</span>
+              <select id="staffRoleInput">
+                <option value="sales_staff">Sales Staff</option>
+                <option value="sales_manager">Sales Manager</option>
+                <option value="inventory_staff">Inventory Staff</option>
+              </select>
+            </label>
+            <label>
+              <span class="setting-field-label">Password</span>
+              <input id="staffPasswordInput" type="password" placeholder="Create password" />
+            </label>
+            <label>
+              <span class="setting-field-label">Account status</span>
+              <select id="staffStatusInput">
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="suspended">Suspended</option>
+                <option value="banned">Banned</option>
+                <option value="pending">Pending</option>
+              </select>
+            </label>
+            <p class="helper-text">Leave the password blank when updating to keep the current one.</p>
+            <button class="secondary-btn" id="staffModalSubmitBtn" type="submit">Add Staff</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="modal hidden" id="deleteModal" aria-hidden="true">
+        <div class="modal-card">
+          <p class="eyebrow">Delete Product</p>
+          <h3>Remove this product?</h3>
+          <p id="deleteModalText">This product will be removed from the inventory list.</p>
+      <div class="modal-actions">
+        <button class="ghost-btn" id="cancelDeleteBtn" type="button">Cancel</button>
+        <button class="danger-btn" id="confirmDeleteBtn" type="button">Delete</button>
+      </div>
+        </div>
+      </div>
+
+      <div class="modal hidden" id="panelEditorModal" aria-hidden="true">
+        <form class="modal-card modal-card-large modal-form form-card editor-card" id="panelForm">
+          <div class="modal-toolbar">
+            <div class="editor-head">
+              <div>
+                <p class="eyebrow">Product Editor</p>
+                <h4 id="panelEditorTitle">Add / Edit Product</h4>
+              </div>
+              <p class="editor-copy">
+                Use the brochure category and product type so the panel code stays aligned with the catalog. The panel name mirrors the product code.
+              </p>
+            </div>
+            <button class="ghost-btn" type="button" id="closePanelEditorBtn">Close</button>
+          </div>
+          <div class="image-holder">
+            <div class="image-placeholder" id="panelImagePreview">
+              <span id="panelImageTitle">Product Image</span>
+              <small id="panelImageCaption">Preview holder</small>
+              <button class="ghost-btn image-replace-btn image-overlay-btn" type="button" id="panelImageReplaceBtn">Add Image</button>
+            </div>
+            <input class="hidden" type="file" id="panelImageFile" accept="image/*" />
+          </div>
+          <div class="model-upload-card" id="panelModelPreview">
+            <model-viewer id="panelModelViewer" class="panel-model-viewer" camera-controls auto-rotate shadow-intensity="0.7" hidden></model-viewer>
+            <div>
+              <strong>3D Panel Model</strong>
+              <small id="panelModelCaption">Optional .glb/.gltf for AR and 3D preview</small>
+            </div>
+            <button class="ghost-btn" type="button" id="panelModelReplaceBtn">Add 3D Model</button>
+            <input class="hidden" type="file" id="panelModelFile" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" />
+          </div>
+          <input type="hidden" id="panelId" />
+          <label>Product Code <input id="panelProductCode" placeholder="Enter product code" required /></label>
+          <label>Panel Name <input id="panelProductName" placeholder="Enter panel name" required /></label>
+          <label>Category
+            <select id="panelCategoryGroup" required></select>
+          </label>
+          <label>Panel Type
+            <select id="panelCategoryName" required></select>
+          </label>
+          <div class="dimension-fields">
+            <label>Length <input id="panelLength" placeholder="2.4m" required /></label>
+            <label>Width <input id="panelWidth" placeholder="1.2m" required /></label>
+            <label>Thickness <input id="panelThickness" placeholder="5mm" /></label>
+          </div>
+          <label>Material <input id="panelMaterial" placeholder="PVC / Wood / Aluminum" required /></label>
+          <label>Description <textarea id="panelDescription" rows="4" placeholder="Optional"></textarea></label>
+          <div class="split-fields">
+            <label>Boxes <input id="panelQuantity" type="number" min="0" step="1" required /></label>
+            <label>Units per Box <input id="panelUnitsPerBox" type="number" min="1" step="1" value="20" required /></label>
+            <label>Price per Meter <input id="panelPrice" type="number" min="0" step="0.01" required /></label>
+            <label>Availability
+              <div class="availability-display" id="panelAvailabilityDisplay">In Stock</div>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button class="primary-btn" type="submit">Save Panel</button>
+            <button class="ghost-btn" type="button" id="clearPanelBtn">Clear</button>
+          </div>
+        </form>
+      </div>
+
+  <script type="module" src="app.js?v=20261104-required-email-1"></script>
+</body>
+</html>
+

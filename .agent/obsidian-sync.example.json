@@ -1,0 +1,6 @@
+{
+  "vaultPath": "C:/Path/To/Your/Obsidian/Vault",
+  "projectFolder": "Aiyige Project",
+  "sourceFolders": ["docs", ".agent"],
+  "exclude": ["node_modules", "build", ".gradle", "tmp-chrome-profile*", "*.hprof"]
+}

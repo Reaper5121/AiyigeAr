@@ -1,0 +1,34 @@
+# Local Android and SDK configuration; may contain EasyAR license keys.
+local.properties
+
+# Generated build and IDE files.
+.gradle/
+.kotlin/
+build/
+**/build/
+.idea/
+*.iml
+
+# Local runtime data, uploaded customer media, credentials, and machine artifacts.
+data/admin-state.json
+data/assets/panel-*
+data/assets/room-capture-*
+supabase/seed_project_data.sql
+.env
+.env.*
+!.env.example
+*.pcap
+*.exe
+*.msix
+
+# Local unpacked/vendor SDK downloads. The required AAR is kept separately in
+# android-customer-compose/app/libs and can be restored from the official SDK.
+EasyARSense_*/
+*.7z
+*.zip
+android-customer-compose/app/libs/EasyAR.aar
+
+# Local browser/test artifacts.
+tmp-chrome-profile*/
+test-results/
+*.hprof

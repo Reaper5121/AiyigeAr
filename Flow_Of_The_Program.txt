@@ -1,0 +1,29 @@
+Aiyige System Flow
+
+Customer flow
+1. Sign in and browse the mobile catalog, or customize a product with AR.
+2. Add the selected products to checkout. An AR room capture may be attached as
+   a reference; it does not create an order.
+3. The backend prepares an official quotation from current product and price
+   data. The app displays it for the customer to review and confirm.
+4. If the customer agrees, they choose J&T or Lalamove. If they decline, `No,
+   go back` returns them to where checkout began with their selection intact.
+5. The customer selects a payment method, then reviews the complete order
+   summary.
+6. On final submission, the backend links the quotation to one order and creates
+   the payment record. Repeating a submission for the same quotation returns
+   its existing records.
+7. The customer can review order updates in the app.
+
+Staff flow
+1. Staff manages inventory and records order preparation and delivery progress.
+2. Staff records the handoff to the courier selected by the customer.
+3. Staff may print the quotation from the order record. Staff does not choose or
+   book the courier and does not attach an external courier quotation.
+
+Data and integration notes
+- J&T and Lalamove are external delivery choices; this project records the
+  customer's selection and delivery status, but does not book either courier.
+- Supabase synchronization is optional and requires server-side credentials.
+- Payment request review is a separate operational record; it does not create
+  an order unless the customer completes checkout.
