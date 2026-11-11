@@ -22,9 +22,12 @@ The project has two runtime surfaces:
 The admin browser serves static files directly from the project, so refresh the
 browser after HTML, CSS, or client JavaScript changes. Android Compose changes
 still need a Gradle build/install because they are compiled into the APK.
+While `npm start` is running, unplugging the Android USB cable does not stop the
+backend. The launcher watches for the device to reconnect and restores ADB port
+forwarding automatically; stop the workflow with Ctrl+C when finished.
 
-Live Supabase checks and ARCore device checks must be reported separately from
-local syntax or build checks.
+Live Supabase checks and physical-device Scene Viewer checks must be reported
+separately from local syntax or build checks.
 
 ## First administrator setup
 

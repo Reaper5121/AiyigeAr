@@ -77,9 +77,8 @@ const translations = {
       action: "Action"
     },
     quotations: {
-      eyebrow: "Quotation",
-      title: "Quotation",
-      heroCopy: "Select a customer order to open its quotation.",
+      queueEyebrow: "Mobile quotations",
+      queueTitle: "Customers with quotations",
       back: "Back",
       customerName: "Customer Name (First, Last, MI)",
       streetAddress: "Street Address",
@@ -173,7 +172,7 @@ const translations = {
       system: "System",
       account: "Account",
       appearanceValue: "Dark Mode",
-      localizationValue: "â‚± / MM/DD / Meters",
+      localizationValue: "\u20B1 / MM/DD / Meters",
       systemValue: "Online",
       displayTitle: "Display Preferences",
       displayCopy: "Set the dashboard theme and visual defaults used across the system.",
@@ -296,9 +295,8 @@ const translations = {
       action: "Aksyon"
     },
     quotations: {
-      eyebrow: "Tagabuo ng Estimate",
-      title: "Quotation",
-      heroCopy: "Pumili ng order ng customer para buksan ang quotation.",
+      queueEyebrow: "Mga quotation sa mobile app",
+      queueTitle: "Mga customer na may quotation",
       back: "Bumalik",
       customerName: "Pangalan ng Customer (Unang Pangalan, Apelyido, MI)",
       streetAddress: "Kalye / Address",
@@ -392,7 +390,7 @@ const translations = {
       system: "Sistema",
       account: "Account",
       appearanceValue: "Dark Mode",
-      localizationValue: "â‚± / MM/DD / Meters",
+      localizationValue: "\u20B1 / MM/DD / Meters",
       systemValue: "Online",
       displayTitle: "Mga Preference sa Display",
       displayCopy: "Itakda ang tema at visual defaults na gagamitin sa buong sistema.",
@@ -570,9 +568,8 @@ export function applyLocalizedCopy() {
   setLeadingText('[data-section="inventory"] .inventory-tools label:nth-child(3)', t.inventory.typeLabel);
   setLeadingText('[data-section="inventory"] .inventory-tools label:nth-child(4)', t.inventory.availabilityLabel);
 
-  setText(document.querySelector('[data-section="quotations"] .eyebrow'), t.quotations.eyebrow);
-  setText(document.querySelector('[data-section="quotations"] h3'), t.quotations.title);
-  setText(document.querySelector(".quote-hero .section-copy"), t.quotations.heroCopy);
+  setText(document.querySelector('[data-section="quotations"] .quote-summary-panel .panel-head .eyebrow'), t.quotations.queueEyebrow);
+  setText(document.querySelector('[data-section="quotations"] .quote-summary-panel .panel-head h3'), t.quotations.queueTitle);
   setText(document.getElementById("quoteStreetAddressLabel"), t.quotations.streetAddress);
   setText(document.getElementById("quoteCityProvinceLabel"), t.quotations.cityProvince);
   setText(document.getElementById("quoteContactNumberLabel"), t.quotations.contactNumber);

@@ -304,3 +304,20 @@ export async function loadState() {
     }
   });
 }
+
+export async function refreshStateFromBackend() {
+  const backendState = await loadStateFromBackend();
+  if (!backendState) return false;
+
+  // Keep the active quotation editor and per-customer drafts in this browser
+  // session while refreshing shared records from the backend.
+  const activeQuotation = cloneState(demoState.quotation || []);
+  const activeQuotationMeta = cloneState(demoState.quotationMeta || {});
+  const quotationDrafts = cloneState(demoState.quotationDrafts || {});
+  applyLoadedState(backendState);
+  demoState.quotation = activeQuotation;
+  demoState.quotationMeta = activeQuotationMeta;
+  demoState.quotationDrafts = quotationDrafts;
+  saveStateToLocalStorage(cloneState(demoState));
+  return true;
+}

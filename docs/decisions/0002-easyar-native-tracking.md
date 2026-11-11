@@ -1,15 +1,18 @@
-# Decision 0002: Evaluate EasyAR Sense Native for unsupported ARCore devices
+# Decision 0002: Superseded AR tracking decision
+
+> Superseded on 2026-11-11. The app now uses Google `<model-viewer>` to launch
+> Scene Viewer for single-model wall placement. This record is retained as
+> historical context; its EasyAR implementation is no longer active.
 
 ## Status
 
-Integrated as the AR backend for devices that cannot run ARCore; production
-use and device validation are pending a suitable license and live testing.
+Integrated as the sole room-scanning backend; production use and device
+validation are pending a suitable license and live testing.
 
 ## Context
 
-The app is native Android Compose with SceneView/ARCore. The Redmi Turbo 3
-cannot install Google Play Services for AR, so its current ARCore path cannot
-run. The camera overlay fallback is not spatial AR. The required experience
+The app is native Android Compose. The Redmi Turbo 3 cannot use Google Play
+Services for AR, and the camera overlay fallback is not spatial AR. The required experience
 needs six-degree-of-freedom tracking, multiple vertical wall planes, horizontal
 ceiling planes, and physically scaled panel anchors.
 
@@ -18,9 +21,9 @@ ceiling planes, and physically scaled panel anchors.
 Integrate EasyAR Sense Native in the existing Android app. EasyAR's current
 motion-tracking device list labels Redmi Turbo 3 as Good. Its Android SDK
 provides Kotlin APIs, and its native PlaneData API reports both horizontal and
-vertical planes. The app retains ARCore/SceneView on ARCore-supported devices
-and selects EasyAR when ARCore is unavailable and a valid local EasyAR license
-is configured. The camera overlay remains a labeled manual fallback.
+vertical planes. The app uses EasyAR whenever room scanning starts and does not
+request Google Play Services for AR. A valid local EasyAR license is required.
+The camera overlay remains a labeled manual fallback.
 
 ## Constraints and risks
 

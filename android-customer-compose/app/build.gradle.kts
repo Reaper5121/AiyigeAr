@@ -9,10 +9,31 @@ plugins {
 val localProperties = Properties().apply {
     rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use { stream -> load(stream) }
 }
-val easyArLicenseKey = localProperties.getProperty("easyar.licenseKey", "")
-    .replace("\\", "\\\\")
-    .replace("\"", "\\\"")
+fun rootEnvironmentValue(name: String): String? {
+    val prefix = "$name="
+    val envFile = rootProject.file(".env")
+    if (!envFile.isFile) return null
+    return envFile.useLines { lines ->
+        lines.map { it.trim().removePrefix("export ") }
+            .firstOrNull { it.startsWith(prefix) }
+            ?.substringAfter('=')
+            ?.trim()
+            ?.removeSurrounding("\"")
+            ?.removeSurrounding("'")
+            ?.takeIf { it.isNotBlank() }
+    }
+}
+fun buildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
+val supabaseUrl = rootEnvironmentValue("SUPABASE_URL")
+    ?: System.getenv("SUPABASE_URL")
+    ?: localProperties.getProperty("supabase.url")
+    ?: error("Set SUPABASE_URL in the root .env before building the customer app.")
+val supabasePublishableKey = rootEnvironmentValue("SUPABASE_PUBLISHABLE_KEY")
+    ?: System.getenv("SUPABASE_PUBLISHABLE_KEY")
+    ?: localProperties.getProperty("supabase.publishableKey")
+    ?: error("Set SUPABASE_PUBLISHABLE_KEY in the root .env before building the customer app.")
 android {
     namespace = "com.aiyige.customer.compose"
     compileSdk = 36
@@ -23,9 +44,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-        buildConfigField("String", "SUPABASE_URL", "\"https://ffbrjiikxlgszoxnzynf.supabase.co\"")
-        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_UZ82L-SLZDeJzc1f9ucIzA_EYAFb3H3\"")
-        buildConfigField("String", "EASYAR_LICENSE_KEY", "\"$easyArLicenseKey\"")
+        buildConfigField("String", "SUPABASE_URL", buildConfigString(supabaseUrl))
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", buildConfigString(supabasePublishableKey))
     }
 
     buildFeatures {
@@ -84,7 +104,6 @@ tasks.named("preBuild") {
 }
 
 dependencies {
-    implementation(files("libs/EasyAR.aar"))
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-compose:1.9.2")
@@ -100,8 +119,8 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("io.coil-kt:coil-compose:2.6.0")
-    // ARCore-backed SceneView for markerless wall/ceiling placement.
-    implementation("io.github.sceneview:arsceneview:3.3.0")
+    implementation("androidx.webkit:webkit:1.12.1")
+    implementation("io.github.sceneview:arsceneview:3.5.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

@@ -2,10 +2,17 @@
 
 1. Customer selects catalog or AR-customized products in the mobile app.
 2. AR may save a room capture reference, but does not create an order.
-3. The backend prepares a professional quotation from the selected products and current prices.
+3. When Supabase is configured, the backend verifies the customer's Supabase session and account email before preparing a professional quotation from current inventory prices. AR selections keep their chosen size, finish, colour, add-ons, and notes in the immutable quotation snapshot; unsupported add-ons and products missing from inventory are rejected. Local development without Supabase keeps its offline account mode.
    The app displays it and stores an in-app notification; no email or courier booking is implied.
-4. Customer confirms the quotation. If they decline, `No, go back` returns them
-   to the screen they started from with their selection intact.
+   Product pricing records specify whether the unit price is per piece or per meter.
+   Piece-priced line totals use unit price � quantity; meter-priced lines also multiply
+   by panel length in meters. Quotations label unit prices separately from line totals.
+4. Customer confirms the quotation. If they change their mind, the app asks for
+   confirmation, saves the quote as unfinished through the shared backend, and
+   shows it in the burger menu and Settings → My quotations. The customer also
+   receives an in-app notification and can resume checkout from the menu or
+   notification. The burger menu contains unfinished quotes; Settings → My
+   quotations contains the full quotation history.
 5. Customer explicitly selects J&T or Lalamove for each checkout; neither is
    preselected.
    Courier booking and its fee are handled by the customer outside the system;
@@ -42,6 +49,28 @@ order.
 
 The mobile checkout does not provide a separate `View Quotation` action. The
 quotation is the first checkout step and appears automatically in the app.
+
+The customer quotation uses the same backend `items_snapshot`, customer,
+business, issue date, and totals as the staff preparation printout. Unfinished
+checkout state is stored on the shared quotation record through
+`POST /api/quotations/:quotationNumber/checkout-state`; submitting the order
+clears the unfinished state and its in-app notification.
+Any quotation without a linked order remains available as unfinished checkout,
+including quotations marked in progress or confirmed but not yet submitted.
+This means Android process death does not need to run a cleanup callback for
+the quotation to remain resumable. Once order submission links the quotation to
+an order, it leaves the unfinished list and appears in order history. The mobile
+app stores each customer's last checkout step, selected courier, and selected
+payment method locally per quotation; resuming returns to that step. Draft
+progress is cleared after order submission or quotation deletion.
+
+From the burger menu, tapping an unfinished quotation resumes checkout. **Edit
+items** restores its saved items to the cart; preparing a replacement quotation
+uses current catalog prices, then removes the old unfinished quotation. If the
+replacement cannot be prepared, the old quotation remains. **Delete** asks for
+confirmation and uses `DELETE /api/quotations/:quotationNumber`; the backend
+allows removal only for that signed-in customer's unfinished quote with no
+linked order. The full quotation history remains under Settings → My quotations.
 
 Manual quotation creation, editing, and sending are not part of this workflow.
 

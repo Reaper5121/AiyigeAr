@@ -6,6 +6,7 @@
   findCatalogEntryForItem,
   resolveCatalogCategoryGroup,
   loadState,
+  refreshStateFromBackend,
   saveState
 } from "../core/state.js";
 import {
@@ -97,6 +98,7 @@ import {
   panelWidth,
   panelThickness,
   panelUnitsPerBox,
+  panelPriceUnit,
   panelImageFile,
   panelImageReplaceBtn,
   panelModelFile,
@@ -124,7 +126,6 @@ import {
   userStatusFilter,
   userDateSort,
   exportUsersBtn,
-  selectAllUsers,
   deleteModal,
   deleteModalText,
   cancelDeleteBtn,
@@ -213,10 +214,23 @@ import {
 import { getDeleteMessage, getTranslation } from "../core/i18n.js";
 
 let sessionTimeoutId = null;
+let sharedStateRefreshTimer = null;
 let sessionListenersBound = false;
 let activeStaffEditId = null;
 let toastHost = null;
 let toastSequence = 0;
+
+function updateConnectionStatus() {
+  const status = document.getElementById("connectionStatus");
+  const note = document.getElementById("connectionStatusNote");
+  if (!status || !note) return;
+
+  const online = navigator.onLine;
+  status.textContent = online ? "Online" : "Offline";
+  status.classList.toggle("success", online);
+  status.classList.toggle("offline", !online);
+  note.textContent = online ? "Network connection available." : "No network connection.";
+}
 
 function getCurrentRole() {
   return String(appState.currentUser?.role || "guest").trim().toLowerCase() || "guest";
@@ -348,7 +362,7 @@ function printGeneratedQuotation(order) {
   const businessName = !savedBusinessName || savedBusinessName.toLowerCase() === "ar panels"
     ? "Aiyige Hardware & Construction"
     : savedBusinessName;
-  const money = value => `â‚±${Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const money = value => `\u20B1${Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const popup = window.open("", "ar-panels-quotation", "width=900,height=1100");
   if (!popup) {
     showToast("Allow pop-ups to print the quotation.", "danger");
@@ -1021,12 +1035,6 @@ function bindEvents() {
     exportUsersCsv();
   });
 
-  selectAllUsers?.addEventListener("change", event => {
-    document.querySelectorAll(".user-row-checkbox").forEach(input => {
-      input.checked = event.target.checked;
-    });
-  });
-
   document.getElementById("inventoryDashboardAlertsBtn")?.addEventListener("click", () => {
     showView("inventory");
     if (inventoryAvailabilityFilter) inventoryAvailabilityFilter.value = "Low Stock";
@@ -1035,11 +1043,6 @@ function bindEvents() {
   });
 
   document.getElementById("adminDashboardUsersBtn")?.addEventListener("click", () => showView("staffs"));
-  document.getElementById("salesDashboardProductsBtn")?.addEventListener("click", () => showView("inventory"));
-  document.getElementById("salesDashboardQuoteBtn")?.addEventListener("click", () => {
-    appState.selectedQuotationNumber = null;
-    showView("quotations");
-  });
   document.getElementById("salesDashboardOpenQuotesBtn")?.addEventListener("click", () => {
     appState.selectedQuotationNumber = null;
     showView("quotations");
@@ -1168,7 +1171,7 @@ function bindEvents() {
   document.getElementById("panelForm").addEventListener("submit", event => {
     event.preventDefault();
     if (!canManageInventory()) {
-      showToast("Only admin and Inventory Staff accounts can save inventory changes.", "danger");
+      showToast("Only Inventory Staff accounts can save inventory changes.", "danger");
       return;
     }
     const id = document.getElementById("panelId").value;
@@ -1188,7 +1191,8 @@ function bindEvents() {
     const width = document.getElementById("panelWidth").value.trim();
     const thickness = document.getElementById("panelThickness").value.trim();
     const unitsPerBox = Math.max(1, Number(document.getElementById("panelUnitsPerBox").value) || 20);
-    const perMeterPrice = Number(document.getElementById("panelPrice").value);
+    const unitPrice = Number(document.getElementById("panelPrice").value);
+    const priceUnit = panelPriceUnit?.value === "meter" ? "meter" : "piece";
     const payload = {
       id: id ? Number(id) : Date.now(),
       name: productCode || productName,
@@ -1205,8 +1209,9 @@ function bindEvents() {
       description: document.getElementById("panelDescription").value.trim(),
       quantity: Math.max(0, Number(document.getElementById("panelQuantity").value) || 0),
       unitsPerBox,
-      pricePerMeter: perMeterPrice,
-      price: perMeterPrice,
+      priceUnit,
+      pricePerMeter: unitPrice,
+      price: unitPrice,
       availability: document.getElementById("panelAvailabilityDisplay").textContent,
       imageData: appState.currentPanelImageData || "",
       modelData: appState.currentPanelModelData || ""
@@ -1269,6 +1274,7 @@ function bindEvents() {
     document.getElementById("panelDescription").value = item.description;
     document.getElementById("panelQuantity").value = item.quantity ?? 0;
     document.getElementById("panelPrice").value = item.pricePerMeter ?? item.price ?? 0;
+    if (panelPriceUnit) panelPriceUnit.value = item.priceUnit || (String(item.productCode || item.name || "").toUpperCase().startsWith("LJS-") ? "meter" : "piece");
     updateAvailabilityDisplay(item.quantity ?? 0);
     setPanelImage(getPanelImageSource(item));
     setPanelModel(item.modelAsset || item.modelUrl || "");
@@ -1626,7 +1632,7 @@ function bindEvents() {
     markQuotePaidBtn.dataset.quotePaidHandler = "true";
     markQuotePaidBtn.addEventListener("click", () => {
       if (!canManagePayments()) {
-        showToast("Only admin and Sales Staff accounts can update payment status.", "danger");
+        showToast("Only Sales Staff and Sales Manager accounts can update payment status.", "danger");
         return;
       }
 
@@ -1688,7 +1694,7 @@ function bindEvents() {
     paymentForm.addEventListener("submit", event => {
       event.preventDefault();
       if (!canManagePayments()) {
-        showToast("Only admin and Sales Staff accounts can record payments.", "danger");
+        showToast("Only Sales Staff and Sales Manager accounts can record payments.", "danger");
         return;
       }
       const quoteNo = paymentQuoteNumber?.value.trim();
@@ -2008,7 +2014,11 @@ async function init() {
     saveState();
   }
   setupPersistenceLoadingIndicator();
+  updateConnectionStatus();
+  window.addEventListener("online", updateConnectionStatus);
+  window.addEventListener("offline", updateConnectionStatus);
   bindEvents();
+  subscribeToSharedState();
   normalizeInventoryRecords(demoState);
   applyTheme(demoState.settings.themeMode);
   renderCategoryGroupOptions("");
@@ -2046,6 +2056,43 @@ async function init() {
   });
 
   registerSessionActivity();
+}
+
+function subscribeToSharedState() {
+  if (typeof EventSource === "undefined") return;
+
+  const refresh = () => {
+    if (document.visibilityState === "hidden") return;
+    clearTimeout(sharedStateRefreshTimer);
+    sharedStateRefreshTimer = setTimeout(async () => {
+      const refreshed = await refreshStateFromBackend();
+      if (!refreshed) return;
+
+      normalizeInventoryRecords(demoState);
+      applyTheme(demoState.settings.themeMode);
+      renderAppSections();
+
+      const currentUsername = String(appState.currentUser?.username || "").toLowerCase();
+      if (currentUsername) {
+        const currentUser = (demoState.users || []).find(user => (
+          String(user.username || "").toLowerCase() === currentUsername &&
+          String(user.status || "active").toLowerCase() === "active"
+        ));
+        if (!currentUser) {
+          logoutCurrentUser();
+          return;
+        }
+        appState.currentUser = currentUser;
+      }
+      applyCurrentAccessRules();
+    }, 250);
+  };
+
+  const events = new EventSource("/api/events");
+  events.addEventListener("state-changed", refresh);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refresh();
+  });
 }
 
 init().catch(error => {

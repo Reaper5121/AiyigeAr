@@ -1,7 +1,6 @@
 ﻿package com.aiyige.customer.compose
 
 import android.Manifest
-import android.app.Activity
 import android.net.Uri
 import android.content.Context
 import android.util.Base64
@@ -9,7 +8,6 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
-import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -33,6 +31,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,6 +39,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -90,6 +90,9 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Home
@@ -149,6 +152,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -172,7 +176,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -188,6 +191,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -203,6 +207,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebSettings
 import com.aiyige.customer.compose.BuildConfig
+import com.aiyige.customer.compose.ar.AnchoredPanelArScreen
+import com.aiyige.customer.compose.ar.ArPanelOption
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -212,33 +218,6 @@ import androidx.camera.view.PreviewView
 import com.aiyige.customer.compose.ui.theme.AiyigeCustomerTheme
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import io.github.sceneview.Scene
-import io.github.sceneview.SurfaceType
-import io.github.sceneview.rememberModelInstance
-import io.github.sceneview.rememberModelLoader
-import io.github.sceneview.rememberEngine
-import io.github.sceneview.rememberCameraManipulator
-import io.github.sceneview.ar.ARScene
-import io.github.sceneview.ar.node.AnchorNode
-import io.github.sceneview.node.ModelNode
-import io.github.sceneview.material.setBaseColorFactor
-import io.github.sceneview.material.setBaseColorMap
-import io.github.sceneview.material.setMetallicFactor
-import io.github.sceneview.material.setRoughnessFactor
-import io.github.sceneview.math.colorOf
-import io.github.sceneview.model.renderableInstances
-import io.github.sceneview.model.renderableManager
-import com.google.ar.core.Config
-import com.google.ar.core.ArCoreApk
-import com.google.ar.core.Plane
-import com.google.ar.core.TrackingState
-import cn.easyar.Engine as EasyArEngine
-import cn.easyar.MotionTrackerCameraDevice as EasyArMotionTrackerCameraDevice
-import com.aiyige.customer.compose.easyar.EasyArPanelPreview
-import io.github.sceneview.math.Position
-import io.github.sceneview.math.Rotation
-import io.github.sceneview.math.Scale
-import io.github.sceneview.texture.ImageTexture
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -251,12 +230,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
+import java.text.ParsePosition
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.Date
 import java.util.Calendar
 import java.util.Locale
+import java.util.TimeZone
+import java.util.UUID
+import kotlin.math.roundToInt
 
 private data class Product(
     val id: Int,
@@ -267,6 +250,7 @@ private data class Product(
     val price: Int,
     val quantity: Int,
     val description: String,
+    val priceUnit: String = "piece",
     val panelType: String = "",
     val imageUrl: String? = null,
     val modelUrl: String? = null
@@ -275,8 +259,46 @@ private data class Product(
 private data class CartLine(
     val product: Product,
     val quantity: Int,
-    val selected: Boolean = true
+    val selected: Boolean = true,
+    val customization: CheckoutCustomization? = null
 )
+
+private data class CheckoutCustomization(
+    val size: String,
+    val finish: String,
+    val colour: String,
+    val addOns: List<String>,
+    val notes: String
+)
+
+private val CHECKOUT_ADD_ON_PRICES = mapOf(
+    "Fixings Kit" to 18,
+    "Pro Adhesive" to 12,
+    "Edge Trim" to 24
+)
+
+private fun checkoutSizeAdjustment(size: String): Int = if (size.contains("300", ignoreCase = true)) 12 else 0
+
+private fun checkoutLengthMeters(size: String): Double {
+    val match = Regex("\\d+(?:\\.\\d+)?").find(size) ?: return 1.0
+    val numericLength = match.value.toDoubleOrNull() ?: return 1.0
+    val afterFirstNumber = size.substring(match.range.last + 1)
+    val unit = Regex("(?i)^\\s*(mm|cm|m|ft|feet|inches?|in)\\b").find(afterFirstNumber)?.groupValues?.get(1)?.lowercase(Locale.ROOT)
+        ?: Regex("(?i)\\b(mm|cm|m|ft|feet|inches?|in)\\b").find(size)?.groupValues?.get(1)?.lowercase(Locale.ROOT)
+    val meters = when (unit) {
+        "mm" -> numericLength / 1000.0
+        "cm" -> numericLength / 100.0
+        "ft", "feet" -> numericLength * 0.3048
+        "in", "inch", "inches" -> numericLength * 0.0254
+        else -> numericLength
+    }
+    return meters.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+}
+
+private fun checkoutLineTotal(unitPrice: Int, size: String, quantity: Int, priceUnit: String = "piece"): Int {
+    val measuredLength = if (priceUnit.equals("meter", ignoreCase = true)) checkoutLengthMeters(size) else 1.0
+    return (unitPrice * measuredLength * quantity.coerceAtLeast(1)).roundToInt()
+}
 
 private data class SavedCustomization(
     val productId: Int,
@@ -288,41 +310,59 @@ private data class SavedCustomization(
     val total: Int
 )
 
+private fun savedCustomizationsPreferenceKey(email: String): String =
+    "saved_panels_${email.trim().lowercase(Locale.ROOT).ifBlank { "guest" }}"
+
+private fun loadSavedCustomizations(context: Context, email: String): List<SavedCustomization> {
+    val raw = context.getSharedPreferences(CUSTOMER_NOTIFICATION_PREFS, Context.MODE_PRIVATE)
+        .getString(savedCustomizationsPreferenceKey(email), "[]") ?: "[]"
+    return runCatching {
+        val items = JSONArray(raw)
+        buildList {
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                val productId = item.optInt("productId", 0)
+                if (productId <= 0) continue
+                add(
+                    SavedCustomization(
+                        productId = productId,
+                        productName = item.optString("productName", "Panel"),
+                        size = item.optString("size", ""),
+                        colour = item.optString("colour", ""),
+                        finish = item.optString("finish", ""),
+                        quantity = item.optString("quantity", "1"),
+                        total = item.optInt("total", 0)
+                    )
+                )
+            }
+        }
+    }.getOrDefault(emptyList())
+}
+
+private fun saveSavedCustomizations(context: Context, email: String, panels: List<SavedCustomization>) {
+    val value = JSONArray().apply {
+        panels.forEach { panel ->
+            put(
+                JSONObject().apply {
+                    put("productId", panel.productId)
+                    put("productName", panel.productName)
+                    put("size", panel.size)
+                    put("colour", panel.colour)
+                    put("finish", panel.finish)
+                    put("quantity", panel.quantity)
+                    put("total", panel.total)
+                }
+            )
+        }
+    }
+    context.getSharedPreferences(CUSTOMER_NOTIFICATION_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(savedCustomizationsPreferenceKey(email), value.toString())
+        .apply()
+}
+
 private fun customizationAddOnValues(prices: Map<String, Int>, csv: String): Int =
     csv.split("|").filter { it.isNotBlank() }.sumOf { prices[it] ?: 0 }
-
-internal data class ArDropRequest(val rootPoint: Offset, val token: Long)
-
-private data class CameraPlacedPanel(
-    val id: Int,
-    val center: Offset,
-    val scale: Float
-)
-
-private data class PlacedArPanel(
-    val anchor: com.google.ar.core.Anchor,
-    val assetPath: String,
-    val tintHex: String,
-    val finish: String,
-    val textureAsset: String,
-    val sizeScale: Float
-)
-
-private fun customizationSizeScale(size: String): Float = when {
-    size.contains("150", ignoreCase = true) -> 1.12f
-    size.contains("300", ignoreCase = true) -> 0.88f
-    else -> 1.0f
-}
-
-private fun panelDimensionsMm(size: String): Pair<Float, Float>? {
-    val dimensions = Regex("\\d+(?:[.,]\\d+)?")
-        .findAll(size)
-        .mapNotNull { it.value.replace(',', '.').toFloatOrNull() }
-        .take(2)
-        .toList()
-    if (dimensions.size != 2 || dimensions.any { it <= 0f }) return null
-    return maxOf(dimensions[0], dimensions[1]) to minOf(dimensions[0], dimensions[1])
-}
 
 private data class InventoryUiState(
     val products: List<Product>,
@@ -343,11 +383,61 @@ private data class RegisteredUser(
     val streetAddress: String = "",
     val cityProvince: String = "",
     val postalCode: String = "",
+    val deliveryAddresses: List<CustomerAddress> = emptyList(),
     val password: String = "",
     val createdAt: String = ""
 ) {
     val displayName: String
         get() = listOf(firstName.trim(), middleName.trim(), lastName.trim()).filter { it.isNotBlank() }.joinToString(" ")
+}
+
+private data class CustomerAddress(
+    val id: String = UUID.randomUUID().toString(),
+    val label: String,
+    val fullName: String = "",
+    val mobileNumber: String = "",
+    val streetAddress: String,
+    val cityProvince: String,
+    val postalCode: String,
+    val isDefault: Boolean = false
+)
+
+private fun normalizeCustomerAddresses(
+    addresses: List<CustomerAddress>,
+    legacyStreet: String = "",
+    legacyCity: String = "",
+    legacyPostalCode: String = ""
+): List<CustomerAddress> {
+    val migrated = if (addresses.isEmpty() && listOf(legacyStreet, legacyCity, legacyPostalCode).any(String::isNotBlank)) {
+        listOf(CustomerAddress(label = "Address 1", streetAddress = legacyStreet, cityProvince = legacyCity, postalCode = legacyPostalCode, isDefault = true))
+    } else addresses
+
+    val unique = migrated
+        .map { address -> address.copy(id = address.id.ifBlank { UUID.randomUUID().toString() }) }
+        .filter { listOf(it.streetAddress, it.cityProvince, it.postalCode).any(String::isNotBlank) }
+        .distinctBy { listOf(it.streetAddress, it.cityProvince, it.postalCode).joinToString("|") { part -> part.trim().lowercase(Locale.ROOT) } }
+    if (unique.isEmpty()) return emptyList()
+
+    val usedIds = mutableSetOf<String>()
+    val uniqueIds = unique.map { address ->
+        val id = if (usedIds.add(address.id)) address.id else UUID.randomUUID().toString().also(usedIds::add)
+        address.copy(id = id)
+    }
+    val defaultId = uniqueIds.firstOrNull { it.isDefault }?.id ?: uniqueIds.first().id
+    return uniqueIds.mapIndexed { index, address ->
+        address.copy(label = address.label.trim().ifBlank { "Address ${index + 1}" }, isDefault = address.id == defaultId)
+    }
+}
+
+private fun RegisteredUser.withDeliveryAddresses(addresses: List<CustomerAddress>): RegisteredUser {
+    val normalized = normalizeCustomerAddresses(addresses)
+    val defaultAddress = normalized.firstOrNull { it.isDefault }
+    return copy(
+        deliveryAddresses = normalized,
+        streetAddress = defaultAddress?.streetAddress.orEmpty(),
+        cityProvince = defaultAddress?.cityProvince.orEmpty(),
+        postalCode = defaultAddress?.postalCode.orEmpty()
+    )
 }
 
 private data class QuoteHistoryEntry(
@@ -356,7 +446,13 @@ private data class QuoteHistoryEntry(
     val summary: String,
     val amount: String,
     val status: String,
-    val createdAt: String
+    val createdAt: String,
+    val isUnfinished: Boolean = false,
+    val itemsJson: String = "",
+    val businessJson: String = "",
+    val issuedAt: String = "",
+    val subtotal: String = "",
+    val vat: String = ""
 )
 
 private data class CustomerOrderUpdate(
@@ -370,6 +466,13 @@ private data class CustomerOrderUpdate(
     val updatedAt: String
 )
 
+private data class CustomerSharedSnapshot(
+    val orders: List<CustomerOrderUpdate>,
+    val paymentMethods: List<String>,
+    val customer: RegisteredUser?,
+    val quotations: List<QuoteHistoryEntry>
+)
+
 private data class CustomerNotification(
     val reference: String,
     val title: String,
@@ -379,13 +482,87 @@ private data class CustomerNotification(
     val status: String,
     val updatedAt: String,
     val quote: QuoteHistoryEntry? = null,
-    val isOrder: Boolean = false
+    val isOrder: Boolean = false,
+    val isPanelAlert: Boolean = false
 )
 
 private const val CUSTOMER_AUTH_PREFS = "aiyige_customer_auth"
 private const val CUSTOMER_AUTH_USERS_KEY = "registered_users"
+private const val PENDING_SIGNUP_PREFS = "aiyige_pending_signup"
+private const val PENDING_SIGNUP_USER_KEY = "user"
+private const val CUSTOMER_NOTIFICATION_PREFS = "aiyige_customer_notifications"
+private const val CUSTOMER_CHECKOUT_DRAFT_PREFS = "aiyige_customer_checkout_drafts"
+private const val DEMO_CUSTOMER_EMAIL = "demo.customer@aiyige.test"
+private const val LEGACY_DEMO_CUSTOMER_EMAIL = "demo@aiyige.local"
+
+private data class CustomerCheckoutDraft(
+    val step: String = "QUOTATION",
+    val courier: String = "",
+    val paymentMethod: String = ""
+)
+
+private fun notificationPreferenceKey(email: String, type: String): String =
+    "${email.trim().lowercase(Locale.ROOT).ifBlank { "guest" }}_$type"
+
+private fun isUnfinishedCustomerQuotation(record: JSONObject): Boolean {
+    val hasOrder = !record.isNull("order_id") && record.optString("order_id").isNotBlank()
+    // Confirmation and payment selection do not finish checkout. Keep a quote
+    // resumable until the backend links it to a submitted order. This also
+    // survives Android process death, where closePayment() may never run.
+    return !hasOrder
+}
+
+private fun checkoutDraftKey(email: String, quotationNumber: String): String =
+    "${email.trim().lowercase(Locale.ROOT).ifBlank { "guest" }}_${quotationNumber.trim()}"
+
+private fun loadCustomerCheckoutDraft(context: Context, email: String, quotationNumber: String): CustomerCheckoutDraft {
+    if (quotationNumber.isBlank()) return CustomerCheckoutDraft()
+    val preferences = context.getSharedPreferences(CUSTOMER_CHECKOUT_DRAFT_PREFS, Context.MODE_PRIVATE)
+    val raw = preferences.getString(checkoutDraftKey(email, quotationNumber), null) ?: return CustomerCheckoutDraft()
+    return runCatching {
+        val json = JSONObject(raw)
+        val savedStep = json.optString("step", "QUOTATION")
+        CustomerCheckoutDraft(
+            step = savedStep.takeIf { it in setOf("QUOTATION", "COURIER", "PAYMENT", "ORDER_REVIEW") } ?: "QUOTATION",
+            courier = json.optString("courier"),
+            paymentMethod = json.optString("paymentMethod")
+        )
+    }.getOrDefault(CustomerCheckoutDraft())
+}
+
+private fun saveCustomerCheckoutDraft(
+    context: Context,
+    email: String,
+    quotationNumber: String,
+    draft: CustomerCheckoutDraft
+) {
+    if (quotationNumber.isBlank()) return
+    context.getSharedPreferences(CUSTOMER_CHECKOUT_DRAFT_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(checkoutDraftKey(email, quotationNumber), JSONObject().apply {
+            put("step", draft.step)
+            put("courier", draft.courier)
+            put("paymentMethod", draft.paymentMethod)
+        }.toString())
+        .commit()
+}
+
+private fun clearCustomerCheckoutDraft(context: Context, email: String, quotationNumber: String) {
+    if (quotationNumber.isBlank()) return
+    context.getSharedPreferences(CUSTOMER_CHECKOUT_DRAFT_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .remove(checkoutDraftKey(email, quotationNumber))
+        .commit()
+}
 
 private fun registeredUserToJson(user: RegisteredUser): JSONObject {
+    val addresses = normalizeCustomerAddresses(
+        user.deliveryAddresses,
+        user.streetAddress,
+        user.cityProvince,
+        user.postalCode
+    )
+    val defaultAddress = addresses.firstOrNull { it.isDefault }
     return JSONObject().apply {
         put("username", user.username)
         put("firstName", user.firstName)
@@ -395,9 +572,23 @@ private fun registeredUserToJson(user: RegisteredUser): JSONObject {
         put("gender", user.gender)
         put("email", user.email)
         put("mobileNumber", user.mobileNumber)
-        put("streetAddress", user.streetAddress)
-        put("cityProvince", user.cityProvince)
-        put("postalCode", user.postalCode)
+        put("streetAddress", defaultAddress?.streetAddress ?: user.streetAddress)
+        put("cityProvince", defaultAddress?.cityProvince ?: user.cityProvince)
+        put("postalCode", defaultAddress?.postalCode ?: user.postalCode)
+        put("deliveryAddresses", JSONArray().apply {
+            addresses.forEach { address ->
+                put(JSONObject().apply {
+                    put("id", address.id)
+                    put("label", address.label)
+                    put("fullName", address.fullName)
+                    put("mobileNumber", address.mobileNumber)
+                    put("streetAddress", address.streetAddress)
+                    put("cityProvince", address.cityProvince)
+                    put("postalCode", address.postalCode)
+                    put("isDefault", address.isDefault)
+                })
+            }
+        })
         put("password", user.password)
         put("createdAt", user.createdAt)
     }
@@ -413,6 +604,33 @@ private fun registeredUserFromJson(value: JSONObject): RegisteredUser? {
     val fallbackMiddleName = if (nameParts.size > 2) nameParts.subList(1, nameParts.lastIndex).joinToString(" ") else ""
     val fallbackLastName = if (nameParts.size > 1) nameParts.lastOrNull().orEmpty() else ""
 
+    val streetAddress = value.optString("streetAddress", "")
+        .ifBlank { value.optString("addressLine1", "") }
+    val cityProvince = value.optString("cityProvince", "")
+        .ifBlank { value.optString("addressLine2", "") }
+    val postalCode = value.optString("postalCode", "")
+        .ifBlank { value.optString("postal_code", "") }
+    val savedAddresses = buildList {
+        val addresses = value.optJSONArray("deliveryAddresses") ?: value.optJSONArray("delivery_addresses") ?: JSONArray()
+        for (index in 0 until addresses.length()) {
+            val address = addresses.optJSONObject(index) ?: continue
+            add(
+                CustomerAddress(
+                    id = address.optString("id", "").ifBlank { UUID.randomUUID().toString() },
+                    label = address.optString("label", "Address ${index + 1}"),
+                    fullName = address.optString("fullName", address.optString("full_name", "")),
+                    mobileNumber = address.optString("mobileNumber", address.optString("mobile_number", "")),
+                    streetAddress = address.optString("streetAddress", address.optString("street_address", "")),
+                    cityProvince = address.optString("cityProvince", address.optString("city_province", "")),
+                    postalCode = address.optString("postalCode", address.optString("postal_code", "")),
+                    isDefault = address.optBoolean("isDefault", address.optBoolean("is_default", false))
+                )
+            )
+        }
+    }
+    val normalizedAddresses = normalizeCustomerAddresses(savedAddresses, streetAddress, cityProvince, postalCode)
+    val defaultAddress = normalizedAddresses.firstOrNull { it.isDefault }
+
     return RegisteredUser(
         username = fallbackUsername,
         firstName = value.optString("firstName", "").ifBlank { value.optString("first_name", fallbackFirstName) },
@@ -424,12 +642,10 @@ private fun registeredUserFromJson(value: JSONObject): RegisteredUser? {
         mobileNumber = value.optString("mobileNumber", "")
             .ifBlank { value.optString("mobile_number", "") }
             .ifBlank { value.optString("contact", "") },
-        streetAddress = value.optString("streetAddress", "")
-            .ifBlank { value.optString("addressLine1", "") },
-        cityProvince = value.optString("cityProvince", "")
-            .ifBlank { value.optString("addressLine2", "") },
-        postalCode = value.optString("postalCode", "")
-            .ifBlank { value.optString("postal_code", "") },
+        streetAddress = defaultAddress?.streetAddress ?: streetAddress,
+        cityProvince = defaultAddress?.cityProvince ?: cityProvince,
+        postalCode = defaultAddress?.postalCode ?: postalCode,
+        deliveryAddresses = normalizedAddresses,
         password = value.optString("password", ""),
         createdAt = value.optString("createdAt", "")
     )
@@ -469,6 +685,28 @@ private fun saveRegisteredUsersToPrefs(context: Context, users: List<RegisteredU
         .apply()
 }
 
+private fun loadPendingSignupUser(context: Context): RegisteredUser? {
+    val raw = context.getSharedPreferences(PENDING_SIGNUP_PREFS, Context.MODE_PRIVATE)
+        .getString(PENDING_SIGNUP_USER_KEY, null)
+        ?: return null
+    return runCatching { registeredUserFromJson(JSONObject(raw))?.copy(password = "") }.getOrNull()
+}
+
+private fun savePendingSignupUser(context: Context, user: RegisteredUser) {
+    val safeUser = user.copy(password = "")
+    context.getSharedPreferences(PENDING_SIGNUP_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(PENDING_SIGNUP_USER_KEY, registeredUserToJson(safeUser).toString())
+        .apply()
+}
+
+private fun clearPendingSignupUser(context: Context) {
+    context.getSharedPreferences(PENDING_SIGNUP_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .clear()
+        .apply()
+}
+
 private fun mergeRegisteredUsers(existing: RegisteredUser, incoming: RegisteredUser): RegisteredUser {
     return existing.copy(
         username = incoming.username.ifBlank { existing.username },
@@ -482,6 +720,12 @@ private fun mergeRegisteredUsers(existing: RegisteredUser, incoming: RegisteredU
         streetAddress = incoming.streetAddress.ifBlank { existing.streetAddress },
         cityProvince = incoming.cityProvince.ifBlank { existing.cityProvince },
         postalCode = incoming.postalCode.ifBlank { existing.postalCode },
+        deliveryAddresses = normalizeCustomerAddresses(
+            incoming.deliveryAddresses.ifEmpty { existing.deliveryAddresses },
+            incoming.streetAddress.ifBlank { existing.streetAddress },
+            incoming.cityProvince.ifBlank { existing.cityProvince },
+            incoming.postalCode.ifBlank { existing.postalCode }
+        ),
         password = incoming.password.ifBlank { existing.password },
         createdAt = existing.createdAt.ifBlank { incoming.createdAt }
     )
@@ -615,7 +859,7 @@ private fun validateRegistrationForm(
     if (dateOfBirth.isBlank()) {
         errors["dateOfBirth"] = "Date of birth is required."
     } else if (!isAdultDateOfBirth(dateOfBirth)) {
-        errors["dateOfBirth"] = "You must be 18 years old or above."
+        errors["dateOfBirth"] = "Choose a valid date. You must be 18 years old or above."
     }
 
     if (gender !in setOf("Male", "Female", "Prefer not to say")) {
@@ -626,6 +870,8 @@ private fun validateRegistrationForm(
         errors["email"] = "Email address is required."
     } else if (!isValidEmailAddress(normalizedEmail)) {
         errors["email"] = "Enter a valid email address."
+    } else if (registeredUsers.any { it.email.equals(normalizedEmail, ignoreCase = true) }) {
+        errors["email"] = "An account with this email already exists. Sign in or use another email."
     }
 
     if (normalizedMobile.isBlank()) {
@@ -634,8 +880,16 @@ private fun validateRegistrationForm(
         errors["mobileNumber"] = "Use a valid PH number like 09XXXXXXXXX."
     }
 
-    if (postalCode.trim().isNotBlank() && !postalCode.trim().matches(Regex("\\d{4}"))) {
+    if (postalCode.trim().isBlank()) {
+        errors["postalCode"] = "ZIP code is required."
+    } else if (!postalCode.trim().matches(Regex("\\d{4}"))) {
         errors["postalCode"] = "Enter a valid 4-digit postal code."
+    }
+
+    if (streetAddress.trim().isBlank()) {
+        errors["streetAddress"] = "Complete address is required."
+    } else if (streetAddress.trim().length > 200) {
+        errors["streetAddress"] = "Address must be 200 characters or fewer."
     }
 
     if (password.isBlank()) {
@@ -910,7 +1164,10 @@ private fun isSupabaseNetworkError(error: Throwable): Boolean {
     val message = error.allMessages()
     return error is java.net.UnknownHostException ||
         error is java.net.SocketTimeoutException ||
+        error is java.io.InterruptedIOException ||
         error is java.net.ConnectException ||
+        message.contains("timed out") ||
+        message.contains("timeout") ||
         message.contains("unable to resolve host") ||
         message.contains("no address associated with hostname") ||
         message.contains("network is unreachable") ||
@@ -936,7 +1193,7 @@ private suspend fun supabaseRequest(
         readTimeout = 15_000
         doInput = true
         setRequestProperty("apikey", BuildConfig.SUPABASE_PUBLISHABLE_KEY)
-        setRequestProperty("Authorization", "Bearer ${accessToken ?: BuildConfig.SUPABASE_PUBLISHABLE_KEY}")
+        accessToken?.let { setRequestProperty("Authorization", "Bearer $it") }
         setRequestProperty("Content-Type", "application/json")
         additionalHeaders.forEach { (key, value) ->
             setRequestProperty(key, value)
@@ -1088,6 +1345,26 @@ private suspend fun requestPasswordRecoveryEmail(email: String): Result<Unit> = 
     }
 }
 
+private suspend fun resendVerificationCode(email: String, type: String): Result<Unit> = runCatching {
+    withTimeout(20_000) {
+        when (type.trim().lowercase(Locale.US)) {
+            "signup" -> {
+                supabaseRequest(
+                    path = "auth/v1/resend?redirect_to=${URLEncoder.encode(PASSWORD_RESET_REDIRECT_URI, Charsets.UTF_8.name())}",
+                    method = "POST",
+                    body = JSONObject().apply {
+                        put("type", "signup")
+                        put("email", email.trim().lowercase(Locale.US))
+                    }
+                )
+            }
+            "recovery" -> requestPasswordRecoveryEmail(email).getOrThrow()
+            else -> throw IllegalArgumentException("Request a new verification code and try again.")
+        }
+        Unit
+    }
+}
+
 private suspend fun verifyEmailOtp(
     email: String,
     token: String,
@@ -1125,6 +1402,23 @@ private suspend fun signInWithPassword(
         extractSupabaseSession(response, email, "")
             ?: throw IllegalStateException("Unable to start a secure session. Please try again.")
     }
+}
+
+private suspend fun refreshCheckoutSession(context: Context): SupabaseSessionCache? = withContext(Dispatchers.IO) {
+    val current = loadSupabaseSession(context) ?: return@withContext null
+    val response = runCatching {
+        supabaseRequest(
+            path = "auth/v1/token?grant_type=refresh_token",
+            method = "POST",
+            body = JSONObject().put("refresh_token", current.refreshToken)
+        )
+    }.getOrElse {
+        throw IllegalStateException("Your secure sign-in session expired. Sign in again before checkout.", it)
+    }
+    val refreshed = extractSupabaseSession(response, current.email, current.displayName)
+        ?: throw IllegalStateException("Your secure sign-in session expired. Sign in again before checkout.")
+    saveSupabaseSession(context, refreshed)
+    refreshed
 }
 
 private suspend fun savePaymentRequestToSupabase(
@@ -1267,25 +1561,47 @@ private fun formatDateOfBirthInput(value: TextFieldValue): TextFieldValue {
 }
 
 private fun isAtLeast18YearsOld(value: String): Boolean {
-    val parser = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }
-    val date = runCatching { parser.parse(value.trim()) }.getOrNull() ?: return false
-    val birth = Calendar.getInstance().apply { time = date }
+    val date = parseIsoDate(value) ?: return false
+    val birth = Calendar.getInstance(TimeZone.getTimeZone("UTC"), Locale.US).apply { time = date }
     val today = Calendar.getInstance()
     var age = today.get(Calendar.YEAR) - birth.get(Calendar.YEAR)
-    if (today.get(Calendar.DAY_OF_YEAR) < birth.get(Calendar.DAY_OF_YEAR)) {
+    val birthdayHasNotOccurred = today.get(Calendar.MONTH) < birth.get(Calendar.MONTH) ||
+        (today.get(Calendar.MONTH) == birth.get(Calendar.MONTH) &&
+            today.get(Calendar.DAY_OF_MONTH) < birth.get(Calendar.DAY_OF_MONTH))
+    if (birthdayHasNotOccurred) {
         age -= 1
     }
     return age >= 18
 }
 
+private fun parseIsoDate(value: String): Date? {
+    val input = value.trim()
+    if (!input.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) return null
+    val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+        isLenient = false
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
+    val position = ParsePosition(0)
+    val parsed = formatter.parse(input, position) ?: return null
+    return parsed.takeIf { position.index == input.length && formatter.format(it) == input }
+}
+
 private fun parseIsoDateMillis(value: String): Long? {
-    val parser = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }
-    return runCatching { parser.parse(value.trim())?.time }.getOrNull()
+    return parseIsoDate(value)?.time
 }
 
 private fun formatIsoDateMillis(millis: Long): String {
-    val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
     return formatter.format(Date(millis))
+}
+
+private fun formatDisplayDateOfBirth(value: String): String {
+    val date = parseIsoDate(value) ?: return ""
+    return SimpleDateFormat("MM/dd/yyyy", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }.format(date)
 }
 
 private const val DEFAULT_BACKEND_BASE_URL = "http://127.0.0.1:3000"
@@ -1427,15 +1743,16 @@ private fun calculateQuoteTotals(unitPrice: Int, quantity: Int, discountPercent:
     return Triple(subtotal, discount, grandTotal)
 }
 
-private fun calculatePanelTotals(unitPrice: Int, quantity: Int): Triple<Int, Int, Int> {
-    val safeQuantity = maxOf(1, quantity)
-    val subtotal = unitPrice * safeQuantity
+private fun calculatePanelTotals(unitPrice: Int, quantity: Int, size: String, priceUnit: String): Triple<Int, Int, Int> {
+    val subtotal = checkoutLineTotal(unitPrice, size, quantity, priceUnit)
     val vat = 0
     val grandTotal = subtotal
     return Triple(subtotal, vat, grandTotal)
 }
 
-private fun formatPeso(amount: Int): String = "₱$amount"
+private fun formatPeso(amount: Int): String = "\u20B1$amount"
+private fun productPriceLabel(product: Product): String =
+    "${formatPeso(product.price)} / ${if (product.priceUnit == "meter") "m" else "piece"}"
 
 private fun toDataUrl(file: File, mimeType: String = "image/jpeg"): String {
     val encoded = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
@@ -1472,6 +1789,43 @@ private suspend fun fetchBackendState(context: Context): JSONObject? = withConte
         }
     }
 
+    null
+}
+
+private suspend fun fetchMobileSync(context: Context, email: String = ""): JSONObject? = withContext(Dispatchers.IO) {
+    val normalizedEmail = email.trim().lowercase(Locale.US)
+    val session = loadSupabaseSession(context)
+    val query = normalizedEmail.takeIf(String::isNotBlank)?.let {
+        "?email=${URLEncoder.encode(it, Charsets.UTF_8.name())}"
+    }.orEmpty()
+    for (baseUrl in backendBaseUrls(context)) {
+        val response = runCatching {
+            val connection = (URL("$baseUrl/api/mobile/sync$query").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 5000
+                readTimeout = 8000
+                setRequestProperty("Accept", "application/json")
+                session?.accessToken?.takeIf { normalizedEmail.isNotBlank() }?.let {
+                    setRequestProperty("Authorization", "Bearer $it")
+                }
+            }
+            try {
+                val responseCode = connection.responseCode
+                val body = if (responseCode in 200..299) {
+                    connection.inputStream.bufferedReader().use { it.readText() }
+                } else {
+                    connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                }
+                if (responseCode in 200..299) JSONObject(body) else null
+            } finally {
+                connection.disconnect()
+            }
+        }.getOrNull()
+        if (response != null) {
+            activeBackendBaseUrl = baseUrl
+            return@withContext response
+        }
+    }
     null
 }
 
@@ -1521,18 +1875,32 @@ private suspend fun prepareQuotation(
     streetAddress: String,
     cityProvince: String,
     postalCode: String,
+    deliveryRecipientName: String,
+    deliveryRecipientPhone: String,
     source: String,
     roomCaptureUrl: String? = null
 ): JSONObject = withContext(Dispatchers.IO) {
+    val checkoutSession = refreshCheckoutSession(context)
     val items = JSONArray().apply {
         lines.forEach { line ->
             put(JSONObject().apply {
                 put("productId", line.product.id)
                 put("panelModel", line.product.name)
-                put("size", line.product.size)
-                put("finish", line.product.material)
+                put("priceUnit", line.product.priceUnit)
+                val customization = line.customization
+                put("size", customization?.size ?: line.product.size)
+                put("finish", customization?.finish?.ifBlank { line.product.material } ?: line.product.material)
+                put("colour", customization?.colour.orEmpty())
                 put("quantity", line.quantity)
-                put("unitPrice", line.product.price)
+                put("customization", customization?.let { detail ->
+                    JSONObject().apply {
+                        put("size", detail.size)
+                        put("finish", detail.finish)
+                        put("colour", detail.colour)
+                        put("addOns", JSONArray(detail.addOns))
+                        put("notes", detail.notes)
+                    }
+                } ?: JSONObject.NULL)
             })
         }
     }
@@ -1547,6 +1915,8 @@ private suspend fun prepareQuotation(
             put("email", customerEmail)
             put("contact", contactNumber)
             put("deliveryAddress", listOf(streetAddress, cityProvince, postalCode).filter { it.isNotBlank() }.joinToString(", "))
+            put("deliveryRecipientName", deliveryRecipientName)
+            put("deliveryRecipientPhone", deliveryRecipientPhone)
         })
     }
     for (baseUrl in backendBaseUrls(context)) {
@@ -1558,6 +1928,7 @@ private suspend fun prepareQuotation(
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/json")
+                checkoutSession?.accessToken?.let { setRequestProperty("Authorization", "Bearer $it") }
             }
             try {
                 connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
@@ -1576,6 +1947,87 @@ private suspend fun prepareQuotation(
     throw IllegalStateException("The quotation could not be prepared by the backend.")
 }
 
+private suspend fun updateQuotationCheckoutState(
+    context: Context,
+    quotationNumber: String,
+    status: String
+): Boolean = withContext(Dispatchers.IO) {
+    require(status in setOf("unfinished", "in_progress")) { "Unsupported quotation checkout state." }
+    val session = refreshCheckoutSession(context)
+        ?: throw IllegalStateException("Sign in again to update this quotation.")
+    val encodedNumber = URLEncoder.encode(quotationNumber, Charsets.UTF_8.name())
+    val payload = JSONObject().put("status", status).put("email", session.email)
+    var lastError: Throwable? = null
+    for (baseUrl in backendBaseUrls(context)) {
+        try {
+            val connection = (URL("$baseUrl/api/quotations/$encodedNumber/checkout-state").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 10_000
+                readTimeout = 15_000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
+                session.accessToken?.let { setRequestProperty("Authorization", "Bearer $it") }
+            }
+            try {
+                connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+                val responseCode = connection.responseCode
+                val body = if (responseCode in 200..299) connection.inputStream else connection.errorStream
+                val responseText = body?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (responseCode !in 200..299) {
+                    val message = runCatching { JSONObject(responseText).optString("error") }.getOrNull().orEmpty()
+                    throw IllegalStateException(message.ifBlank { "Quotation status could not be updated." })
+                }
+                activeBackendBaseUrl = baseUrl
+                return@withContext true
+            } finally {
+                connection.disconnect()
+            }
+        } catch (error: Exception) {
+            lastError = error
+        }
+    }
+    throw IllegalStateException(lastError?.message ?: "Quotation status could not be updated.")
+}
+
+private suspend fun deleteUnfinishedQuotation(context: Context, quotationNumber: String): Boolean = withContext(Dispatchers.IO) {
+    val session = refreshCheckoutSession(context)
+        ?: throw IllegalStateException("Sign in again to delete this quotation.")
+    val encodedNumber = URLEncoder.encode(quotationNumber, Charsets.UTF_8.name())
+    val payload = JSONObject().put("email", session.email)
+    var lastError: Throwable? = null
+    for (baseUrl in backendBaseUrls(context)) {
+        try {
+            val connection = (URL("$baseUrl/api/quotations/$encodedNumber").openConnection() as HttpURLConnection).apply {
+                requestMethod = "DELETE"
+                connectTimeout = 10_000
+                readTimeout = 15_000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
+                session.accessToken?.let { setRequestProperty("Authorization", "Bearer $it") }
+            }
+            try {
+                connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+                val responseCode = connection.responseCode
+                val body = if (responseCode in 200..299) connection.inputStream else connection.errorStream
+                val responseText = body?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (responseCode !in 200..299) {
+                    val message = runCatching { JSONObject(responseText).optString("error") }.getOrNull().orEmpty()
+                    throw IllegalStateException(message.ifBlank { "The unfinished quotation could not be deleted." })
+                }
+                activeBackendBaseUrl = baseUrl
+                return@withContext true
+            } finally {
+                connection.disconnect()
+            }
+        } catch (error: Exception) {
+            lastError = error
+        }
+    }
+    throw IllegalStateException(lastError?.message ?: "The unfinished quotation could not be deleted.")
+}
+
 private suspend fun createOrderWithQuotation(
     context: Context,
     lines: List<CartLine>,
@@ -1586,21 +2038,24 @@ private suspend fun createOrderWithQuotation(
     streetAddress: String,
     cityProvince: String,
     postalCode: String,
+    deliveryRecipientName: String,
+    deliveryRecipientPhone: String,
     paymentMethod: String,
     courier: String,
     source: String,
     roomCaptureUrl: String? = null,
     paymentReference: String = ""
 ): JSONObject = withContext(Dispatchers.IO) {
+    val checkoutSession = refreshCheckoutSession(context)
     val items = JSONArray().apply {
         lines.forEach { line ->
             put(JSONObject().apply {
                 put("productId", line.product.id)
                 put("panelModel", line.product.name)
-                put("size", line.product.size)
-                put("finish", line.product.material)
+                put("size", line.customization?.size ?: line.product.size)
+                put("finish", line.customization?.finish?.ifBlank { line.product.material } ?: line.product.material)
+                put("colour", line.customization?.colour.orEmpty())
                 put("quantity", line.quantity)
-                put("unitPrice", line.product.price)
             })
         }
     }
@@ -1618,6 +2073,8 @@ private suspend fun createOrderWithQuotation(
             put("email", customerEmail)
             put("contact", contactNumber)
             put("deliveryAddress", listOf(streetAddress, cityProvince, postalCode).filter { it.isNotBlank() }.joinToString(", "))
+            put("deliveryRecipientName", deliveryRecipientName)
+            put("deliveryRecipientPhone", deliveryRecipientPhone)
         })
     }
     for (baseUrl in backendBaseUrls(context)) {
@@ -1629,6 +2086,7 @@ private suspend fun createOrderWithQuotation(
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/json")
+                checkoutSession?.accessToken?.let { setRequestProperty("Authorization", "Bearer $it") }
             }
             try {
                 connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
@@ -1708,33 +2166,37 @@ private suspend fun saveRoomCaptureToBackend(
 
 private suspend fun saveCustomerRegistrationToBackend(context: Context, user: RegisteredUser): Boolean = withContext(Dispatchers.IO) {
     runCatching {
+        val normalizedUser = user.withDeliveryAddresses(
+            normalizeCustomerAddresses(user.deliveryAddresses, user.streetAddress, user.cityProvince, user.postalCode)
+        )
         val state = fetchBackendState(context) ?: return@withContext false
         val customers = state.optJSONArray("customers") ?: JSONArray()
         val now = formatCaptureTimestamp()
         val existingIndex = (0 until customers.length()).firstOrNull { index ->
             val record = customers.optJSONObject(index) ?: return@firstOrNull false
-            record.optString("email", "").equals(user.email, ignoreCase = true)
+            record.optString("email", "").equals(normalizedUser.email, ignoreCase = true)
         }
 
         val customerRecord = JSONObject().apply {
-            put("username", user.username)
-            put("name", user.displayName)
-            put("firstName", user.firstName)
-            put("middleName", user.middleName)
-            put("lastName", user.lastName)
-            put("gender", user.gender)
-            put("dateOfBirth", user.dateOfBirth)
-            put("contact", user.mobileNumber)
-            put("mobileNumber", user.mobileNumber)
-            put("streetAddress", user.streetAddress)
-            put("cityProvince", user.cityProvince)
-            put("postalCode", user.postalCode)
-            put("address", listOf(user.streetAddress, user.cityProvince, user.postalCode).filter { it.isNotBlank() }.joinToString(", "))
+            put("username", normalizedUser.username)
+            put("name", normalizedUser.displayName)
+            put("firstName", normalizedUser.firstName)
+            put("middleName", normalizedUser.middleName)
+            put("lastName", normalizedUser.lastName)
+            put("gender", normalizedUser.gender)
+            put("dateOfBirth", normalizedUser.dateOfBirth)
+            put("contact", normalizedUser.mobileNumber)
+            put("mobileNumber", normalizedUser.mobileNumber)
+            put("streetAddress", normalizedUser.streetAddress)
+            put("cityProvince", normalizedUser.cityProvince)
+            put("postalCode", normalizedUser.postalCode)
+            put("deliveryAddresses", registeredUserToJson(normalizedUser).optJSONArray("deliveryAddresses") ?: JSONArray())
+            put("address", listOf(normalizedUser.streetAddress, normalizedUser.cityProvince, normalizedUser.postalCode).filter { it.isNotBlank() }.joinToString(", "))
             put("quote", "Mobile signup")
             put("notes", "Registered from customer app")
-            put("email", user.email)
+            put("email", normalizedUser.email)
             put("source", "Customer App")
-            put("createdAt", user.createdAt.ifBlank { now })
+            put("createdAt", normalizedUser.createdAt.ifBlank { now })
             put("updatedAt", now)
         }
 
@@ -1746,6 +2208,14 @@ private suspend fun saveCustomerRegistrationToBackend(context: Context, user: Re
         state.put("customers", customers)
         saveBackendState(context, state) != null
     }.getOrDefault(false)
+}
+
+private suspend fun saveCustomerRegistrationWithRetry(context: Context, user: RegisteredUser): Boolean {
+    repeat(3) { attempt ->
+        if (saveCustomerRegistrationToBackend(context, user)) return true
+        if (attempt < 2) delay(500L * (attempt + 1))
+    }
+    return false
 }
 
 private suspend fun loadRegisteredUsersFromBackend(context: Context): List<RegisteredUser> = withContext(Dispatchers.IO) {
@@ -1823,7 +2293,15 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
             sourceLabel = "Connecting to backend..."
         )
     ) {
-        value = loadInventory(context)
+        while (true) {
+            val refreshed = loadInventory(context)
+            if (refreshed.errorMessage == null || value.products.isEmpty()) {
+                value = refreshed
+            } else {
+                value = value.copy(isLoading = false, errorMessage = refreshed.errorMessage)
+            }
+            delay(20_000)
+        }
     }
 
     val products = remember(inventoryUiState.products, inventoryUiState.errorMessage) {
@@ -1834,18 +2312,31 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
         }
     }
 
-    var currentTab by rememberSaveable { mutableStateOf(Tab.Home) }
+    val restoredPendingSignup = remember(context) { loadPendingSignupUser(context) }
+    var currentTab by rememberSaveable { mutableStateOf(if (restoredPendingSignup != null) Tab.Settings else Tab.Home) }
     var recentlyViewedIds by rememberSaveable { mutableStateOf<List<Int>>(emptyList()) }
-    var settingsPage by rememberSaveable { mutableStateOf(SettingsPage.Home) }
+    var settingsPage by rememberSaveable { mutableStateOf(if (restoredPendingSignup != null) SettingsPage.VerifyEmail else SettingsPage.Home) }
     var settingsLastAuthPage by rememberSaveable { mutableStateOf(SettingsPage.Login) }
     var settingsReturnTab by rememberSaveable { mutableStateOf(Tab.Home) }
+    var savedPanelsReturnTab by rememberSaveable { mutableStateOf(Tab.Customization) }
     var pendingPostLoginTab by rememberSaveable { mutableStateOf("") }
     var selectedProductId by rememberSaveable { mutableStateOf<Int?>(null) }
     var cart by remember { mutableStateOf<List<CartLine>>(emptyList()) }
+    var quotationBeingEdited by remember { mutableStateOf<String?>(null) }
     var isSignedIn by rememberSaveable { mutableStateOf(false) }
     var isDemoAccount by rememberSaveable { mutableStateOf(false) }
     var signInName by rememberSaveable { mutableStateOf("Guest User") }
     var signInEmail by rememberSaveable { mutableStateOf("") }
+
+    val notificationPreferences = remember(context) {
+        context.getSharedPreferences(CUSTOMER_NOTIFICATION_PREFS, Context.MODE_PRIVATE)
+    }
+    var quotationAlertsEnabled by remember(signInEmail) {
+        mutableStateOf(notificationPreferences.getBoolean(notificationPreferenceKey(signInEmail, "quotations"), true))
+    }
+    var panelAlertsEnabled by remember(signInEmail) {
+        mutableStateOf(notificationPreferences.getBoolean(notificationPreferenceKey(signInEmail, "panels"), true))
+    }
     var requestCount by rememberSaveable { mutableIntStateOf(0) }
     var backendUrlDraft by rememberSaveable { mutableStateOf(loadConfiguredBackendBaseUrl(context)) }
     val registeredUsers = remember { mutableStateListOf<RegisteredUser>() }
@@ -1862,21 +2353,29 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
     var latestQuotationIssuedAt by rememberSaveable { mutableStateOf("") }
     var latestQuotationBusinessJson by rememberSaveable { mutableStateOf("") }
     var latestQuoteItemName by rememberSaveable { mutableStateOf("") }
-    var latestQuoteUnitPrice by rememberSaveable { mutableStateOf("₱0") }
-    var latestQuoteSubtotal by rememberSaveable { mutableStateOf("₱0") }
-    var latestQuoteVat by rememberSaveable { mutableStateOf("₱0") }
+    var latestQuoteUnitPrice by rememberSaveable { mutableStateOf(formatPeso(0)) }
+    var latestQuoteSubtotal by rememberSaveable { mutableStateOf(formatPeso(0)) }
+    var latestQuoteVat by rememberSaveable { mutableStateOf(formatPeso(0)) }
     var latestQuotePanels by rememberSaveable { mutableStateOf("0") }
-    var latestQuoteAmount by rememberSaveable { mutableStateOf("₱0") }
+    var latestQuoteAmount by rememberSaveable { mutableStateOf(formatPeso(0)) }
     var paymentStatusMessage by rememberSaveable { mutableStateOf("") }
     var selectedPaymentMethod by rememberSaveable { mutableStateOf("") }
     var selectedDeliveryMethod by rememberSaveable { mutableStateOf("") }
-    var configuredPaymentMethods by remember { mutableStateOf(listOf("Cash", "GCash", "Bank Transfer")) }
+    var checkoutResumeStep by rememberSaveable { mutableStateOf("QUOTATION") }
+    var configuredPaymentMethods by remember { mutableStateOf(listOf("Cash", "GCash")) }
     var latestRoomCaptureUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var latestRoomCaptureLabel by rememberSaveable { mutableStateOf("No room capture saved yet.") }
     var selectedQuantity by rememberSaveable { mutableIntStateOf(1) }
     var paymentScreenOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(currentTab, paymentScreenOpen) {
+        if (currentTab != Tab.Cart && !paymentScreenOpen) quotationBeingEdited = null
+    }
     var isPreparingQuotation by rememberSaveable { mutableStateOf(false) }
     var addressScreenOpen by rememberSaveable { mutableStateOf(false) }
+    var addressEditorOpen by rememberSaveable { mutableStateOf(false) }
+    var addressEditingId by rememberSaveable { mutableStateOf("") }
+    var addressFullName by rememberSaveable { mutableStateOf("") }
+    var addressMobileNumber by rememberSaveable { mutableStateOf("") }
     var addressStreet by rememberSaveable { mutableStateOf("") }
     var addressCityProvince by rememberSaveable { mutableStateOf("") }
     var addressPostalCode by rememberSaveable { mutableStateOf("") }
@@ -1902,20 +2401,35 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
     var customizationQuantity by rememberSaveable(selectedProductId) { mutableStateOf("1") }
     var customizationNotes by rememberSaveable(selectedProductId) { mutableStateOf("") }
     var customizationAddOnsCsv by rememberSaveable(selectedProductId) { mutableStateOf("") }
-    var savedCustomizations by remember { mutableStateOf<List<SavedCustomization>>(emptyList()) }
+    var savedCustomizations by remember(signInEmail) {
+        mutableStateOf(loadSavedCustomizations(context, signInEmail))
+    }
+    LaunchedEffect(signInEmail, savedCustomizations) {
+        saveSavedCustomizations(context, signInEmail, savedCustomizations)
+    }
     var showSavedPanels by rememberSaveable { mutableStateOf(false) }
     var showNotificationPanel by rememberSaveable { mutableStateOf(false) }
     var showAutomaticEstimate by rememberSaveable { mutableStateOf(false) }
-    var orderTrackingEntry by remember { mutableStateOf<CustomerOrderUpdate?>(null) }
     var selectedSavedPanelIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var pendingSignupUser by remember { mutableStateOf<RegisteredUser?>(null) }
+    var pendingSignupUser by remember(restoredPendingSignup) { mutableStateOf(restoredPendingSignup) }
     var pendingRecoveryEmail by rememberSaveable { mutableStateOf("") }
-    var pendingOtpType by rememberSaveable { mutableStateOf("") }
-    var authNotice by rememberSaveable { mutableStateOf("") }
-    var isAuthEmailRequestInFlight by rememberSaveable { mutableStateOf(false) }
+    var pendingOtpType by rememberSaveable { mutableStateOf(if (restoredPendingSignup != null) "signup" else "") }
+    var authNotice by rememberSaveable { mutableStateOf(restoredPendingSignup?.let { "Enter the verification code sent to ${it.email}." }.orEmpty()) }
+    var isAuthEmailRequestInFlight by remember { mutableStateOf(false) }
     val customerReferenceName = quoteName.ifBlank { signInName }
     val compactSignedInName = compactDisplayName(signInName).ifBlank { signInName.substringBefore(" ").ifBlank { signInName } }
     val deliveryMethodOptions = remember { listOf("J&T", "Lalamove") }
+
+    LaunchedEffect(restoredPendingSignup) {
+        if (restoredPendingSignup != null && !isSignedIn) {
+            pendingSignupUser = restoredPendingSignup
+            pendingOtpType = "signup"
+            currentTab = Tab.Settings
+            settingsPage = SettingsPage.VerifyEmail
+            settingsLastAuthPage = SettingsPage.VerifyEmail
+            authNotice = "Enter the verification code sent to ${restoredPendingSignup.email}."
+        }
+    }
 
     val excludedCatalogCategories = remember {
         setOf(
@@ -1943,7 +2457,7 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
         }
     }
     val selectedProduct = products.firstOrNull { it.id == selectedProductId }
-    val cartItemCount = cart.sumOf { it.quantity }
+    val cartItemCount = cart.size
     fun addToCart(product: Product, quantity: Int = 1): Boolean {
         if (product.quantity <= 0) return false
         val safeQuantity = quantity.coerceIn(1, product.quantity)
@@ -1988,7 +2502,13 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
         }
     }
     val currentRegisteredUser = registeredUsers.firstOrNull { it.email.equals(signInEmail, ignoreCase = true) }
-    val paymentMethodOptions = configuredPaymentMethods
+    val currentCustomerAddresses = normalizeCustomerAddresses(
+        currentRegisteredUser?.deliveryAddresses.orEmpty(),
+        currentRegisteredUser?.streetAddress.orEmpty(),
+        currentRegisteredUser?.cityProvince.orEmpty(),
+        currentRegisteredUser?.postalCode.orEmpty()
+    )
+    val paymentMethodOptions = configuredPaymentMethods.filterNot { it.trim().equals("Bank Transfer", ignoreCase = true) }
     LaunchedEffect(paymentScreenOpen, isSignedIn, signInEmail) {
         if (!paymentScreenOpen || !isSignedIn || signInEmail.isBlank()) return@LaunchedEffect
         val backendUser = loadRegisteredUsersFromBackend(context)
@@ -2002,11 +2522,43 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
         }
         saveRegisteredUsersToPrefs(context, registeredUsers.toList())
     }
-    LaunchedEffect(isSignedIn, signInEmail, signInName, currentTab, syncTick) {
-        customerOrderUpdates = if (isSignedIn && signInEmail.isNotBlank()) {
-            loadCustomerOrderUpdates(context, signInEmail, signInName)
-        } else {
-            emptyList()
+    LaunchedEffect(isSignedIn, signInEmail) {
+        if (!isSignedIn || signInEmail.isBlank()) {
+            customerOrderUpdates = emptyList()
+            return@LaunchedEffect
+        }
+        while (true) {
+            loadCustomerSharedSnapshot(context, if (isDemoAccount) "" else signInEmail)?.let { snapshot ->
+                customerOrderUpdates = snapshot.orders
+                if (snapshot.paymentMethods.isNotEmpty()) {
+                    configuredPaymentMethods = snapshot.paymentMethods
+                    if (selectedPaymentMethod !in snapshot.paymentMethods.filterNot { it.trim().equals("Bank Transfer", ignoreCase = true) }) {
+                        selectedPaymentMethod = ""
+                    }
+                }
+                snapshot.customer?.let { backendUser ->
+                    val existingIndex = registeredUsers.indexOfFirst { it.email.equals(signInEmail, ignoreCase = true) }
+                    if (existingIndex >= 0) {
+                        registeredUsers[existingIndex] = mergeRegisteredUsers(registeredUsers[existingIndex], backendUser)
+                    } else {
+                        registeredUsers.add(backendUser)
+                    }
+                    saveRegisteredUsersToPrefs(context, registeredUsers.toList())
+                }
+                val ordersByQuote = snapshot.orders.associateBy { it.invoice }
+                val serverQuoteNumbers = snapshot.quotations.mapTo(mutableSetOf()) { it.quoteNumber }
+                val refreshedQuotes = snapshot.quotations + recentQuoteHistory.filterNot { it.quoteNumber in serverQuoteNumbers }
+                recentQuoteHistory = refreshedQuotes.map { quote ->
+                    val order = ordersByQuote[quote.quoteNumber] ?: return@map quote
+                    val paymentIsComplete = order.paymentStatus.trim().lowercase(Locale.US) in
+                        setOf("paid", "completed", "settled")
+                    quote.copy(
+                        status = if (paymentIsComplete) order.deliveryStatus.ifBlank { "Paid" }
+                        else order.paymentStatus.ifBlank { "Awaiting payment" }
+                    )
+                }
+            }
+            delay(15_000)
         }
     }
 
@@ -2048,6 +2600,21 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
             registeredUsers.add(normalizedUser)
         }
         saveRegisteredUsersToPrefs(context, registeredUsers)
+    }
+    fun persistCustomerAddressList(addresses: List<CustomerAddress>) {
+        val owner = currentRegisteredUser ?: RegisteredUser(
+            username = signInEmail.substringBefore("@").ifBlank { "customer" },
+            firstName = signInName,
+            lastName = "",
+            middleName = "",
+            dateOfBirth = "",
+            gender = "",
+            email = signInEmail,
+            mobileNumber = ""
+        )
+        val updated = owner.withDeliveryAddresses(addresses)
+        upsertRegisteredUser(updated)
+        scope.launch { saveCustomerRegistrationToBackend(context, updated) }
     }
     fun applyAuthenticatedSession(
         displayName: String,
@@ -2142,6 +2709,15 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
         SettingsPage.VerifyEmail,
         SettingsPage.RecoverPassword
     )
+    val settingsDetailPageOpen = currentTab == Tab.Settings && settingsPage in setOf(
+        SettingsPage.ProfileDetails,
+        SettingsPage.Password,
+        SettingsPage.Notifications,
+        SettingsPage.Quotations,
+        SettingsPage.HelpSupport,
+        SettingsPage.TermsPrivacy,
+        SettingsPage.AboutApp
+    )
     fun openSettings(page: SettingsPage = if (isSignedIn) SettingsPage.Home else SettingsPage.Login, returnTab: Tab = currentTab) {
         settingsReturnTab = returnTab
         currentTab = Tab.Settings
@@ -2218,19 +2794,104 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
     fun openPayment(returnTab: Tab = currentTab) {
         paymentReturnTab = returnTab
         paymentSubmitted = false
+        paymentStatusMessage = ""
         selectedPaymentMethod = ""
         selectedDeliveryMethod = ""
+        checkoutResumeStep = "QUOTATION"
         paymentScreenOpen = true
     }
 
     fun closePayment() {
+        val quotationToKeep = latestQuoteNumber.takeIf { it.isNotBlank() && !paymentSubmitted }
         paymentScreenOpen = false
         currentTab = paymentReturnTab
+        quotationToKeep?.let { quoteNumber ->
+            recentQuoteHistory = recentQuoteHistory.map { quote ->
+                if (quote.quoteNumber == quoteNumber) quote.copy(status = "Unfinished quotation", isUnfinished = true) else quote
+            }
+            scope.launch {
+                runCatching { updateQuotationCheckoutState(context, quoteNumber, "unfinished") }
+            }
+        }
+    }
+
+    fun resumeQuotation(quote: QuoteHistoryEntry) {
+        latestQuoteNumber = quote.quoteNumber
+        latestQuoteItemName = quote.summary
+        lastQuoteSummary = quote.summary
+        latestQuoteAmount = quote.amount
+        latestQuoteSubtotal = quote.subtotal
+        latestQuoteVat = quote.vat
+        latestQuotationItemsJson = quote.itemsJson
+        latestQuotationIssuedAt = quote.issuedAt.ifBlank { quote.createdAt }
+        latestQuotationBusinessJson = quote.businessJson
+        paymentStatusMessage = ""
+        paymentSubmitted = false
+        val checkoutDraft = loadCustomerCheckoutDraft(context, signInEmail, quote.quoteNumber)
+        checkoutResumeStep = checkoutDraft.step
+        selectedDeliveryMethod = checkoutDraft.courier
+        selectedPaymentMethod = checkoutDraft.paymentMethod.takeIf { it in paymentMethodOptions }.orEmpty()
+        paymentReturnTab = currentTab
+        paymentScreenOpen = true
+        recentQuoteHistory = recentQuoteHistory.map { entry ->
+            if (entry.quoteNumber == quote.quoteNumber) entry.copy(isUnfinished = true, status = "Unfinished quotation") else entry
+        }
+        scope.launch {
+            runCatching { updateQuotationCheckoutState(context, quote.quoteNumber, "in_progress") }
+        }
+    }
+
+    fun editQuotationItems(quote: QuoteHistoryEntry): Boolean {
+        val items = runCatching { JSONArray(quote.itemsJson) }.getOrNull()
+        if (items == null || items.length() == 0) {
+            Toast.makeText(context, "This quotation's items are unavailable to edit.", Toast.LENGTH_LONG).show()
+            return false
+        }
+        var unavailableItem = false
+        val editableLines = buildList {
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                val productId = item.optInt("productId", item.optInt("product_id", 0))
+                val product = products.firstOrNull { it.id == productId }
+                if (product == null) {
+                    unavailableItem = true
+                    continue
+                }
+                val customization = item.optJSONObject("customization")?.let { detail ->
+                    val addOns = detail.optJSONArray("addOns") ?: JSONArray()
+                    CheckoutCustomization(
+                        size = detail.optString("size", item.optString("size", product.size)),
+                        finish = detail.optString("finish", item.optString("finish", product.material)),
+                        colour = detail.optString("colour", item.optString("colour")),
+                        addOns = (0 until addOns.length()).map { addOns.optString(it) }.filter { it.isNotBlank() },
+                        notes = detail.optString("notes")
+                    )
+                }
+                add(CartLine(product, item.optInt("quantity", 1).coerceAtLeast(1), customization = customization))
+            }
+        }
+        if (unavailableItem || editableLines.isEmpty()) {
+            Toast.makeText(context, "Some quoted items are no longer in the catalog. This quotation was kept unchanged.", Toast.LENGTH_LONG).show()
+            return false
+        }
+        cart = editableLines
+        quotationBeingEdited = quote.quoteNumber
+        paymentScreenOpen = false
+        currentTab = Tab.Cart
+        Toast.makeText(context, "Edit the cart, then get an updated quotation at current prices.", Toast.LENGTH_LONG).show()
+        return true
     }
 
     fun startCartCheckout(lines: List<CartLine>, returnTab: Tab = currentTab) {
+        if (isPreparingQuotation || isPaymentSubmitting || lines.isEmpty()) return
         activeCheckoutLines = lines
-        val subtotal = lines.sumOf { it.product.price * it.quantity }
+        val subtotal = lines.sumOf { line ->
+            val customization = line.customization
+            val addOns = customization?.addOns.orEmpty().sumOf { CHECKOUT_ADD_ON_PRICES[it] ?: 0 }
+            val sizeAdjustment = customization?.size?.let(::checkoutSizeAdjustment) ?: 0
+            val size = customization?.size?.takeIf { it.isNotBlank() } ?: line.product.size
+            checkoutLineTotal(line.product.price + addOns + sizeAdjustment, size, line.quantity, line.product.priceUnit)
+        }
         val vat = 0
         latestQuoteNumber = ""
         latestQuotationItemsJson = ""
@@ -2266,7 +2927,9 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                             streetAddress = currentRegisteredUser?.streetAddress.orEmpty(),
                             cityProvince = currentRegisteredUser?.cityProvince.orEmpty(),
                             postalCode = currentRegisteredUser?.postalCode.orEmpty(),
-                            source = if (latestRoomCaptureUrl != null) "AR" else "CATALOG",
+                            deliveryRecipientName = currentRegisteredUser?.deliveryAddresses?.firstOrNull { it.isDefault }?.fullName.orEmpty(),
+                            deliveryRecipientPhone = currentRegisteredUser?.deliveryAddresses?.firstOrNull { it.isDefault }?.mobileNumber.orEmpty(),
+                            source = if (latestRoomCaptureUrl != null || lines.any { it.customization != null }) "AR" else "CATALOG",
                             roomCaptureUrl = latestRoomCaptureUrl
                         )
                     }
@@ -2291,9 +2954,27 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                             summary = latestQuoteItemName,
                             amount = latestQuoteAmount,
                             status = "Quotation ready",
-                            createdAt = quotation?.optString("created_at").orEmpty().ifBlank { formatCaptureTimestamp() }
+                            createdAt = quotation?.optString("created_at").orEmpty().ifBlank { formatCaptureTimestamp() },
+                            itemsJson = latestQuotationItemsJson,
+                            businessJson = latestQuotationBusinessJson,
+                            issuedAt = latestQuotationIssuedAt,
+                            subtotal = latestQuoteSubtotal,
+                            vat = latestQuoteVat
                         )
                     ) + recentQuoteHistory
+                    quotationBeingEdited?.takeIf { it != latestQuoteNumber }?.let { replacedQuoteNumber ->
+                        quotationBeingEdited = null
+                        scope.launch {
+                            runCatching { deleteUnfinishedQuotation(context, replacedQuoteNumber) }
+                                .onSuccess {
+                                    clearCustomerCheckoutDraft(context, signInEmail, replacedQuoteNumber)
+                                    recentQuoteHistory = recentQuoteHistory.filterNot { it.quoteNumber == replacedQuoteNumber }
+                                }
+                                .onFailure {
+                                    Toast.makeText(context, "Updated quotation created. Delete the older unfinished quotation from the menu if you no longer need it.", Toast.LENGTH_LONG).show()
+                                }
+                        }
+                    }
                 }.onFailure { error ->
                     paymentScreenOpen = false
                     paymentStatusMessage = error.message ?: "Unable to prepare your quotation. Please try again."
@@ -2308,10 +2989,11 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
     fun createQuotationFromCustomization(returnTab: Tab) {
         val product = selectedProduct ?: return
         val quantityValue = customizationQuantity.toIntOrNull()?.coerceAtLeast(1) ?: 1
-        val addOnPrices = mapOf("Fixings Kit" to 18, "Pro Adhesive" to 12, "Edge Trim" to 24)
-        val sizeAdjustment = if (customizationSize.contains("300")) 12 else 0
+        val addOnPrices = CHECKOUT_ADD_ON_PRICES
+        val sizeAdjustment = checkoutSizeAdjustment(customizationSize)
         val addOnTotal = selectedAddOns.sumOf { addOnPrices[it] ?: 0 }
-        val subtotal = (product.price + addOnTotal + sizeAdjustment) * quantityValue
+        val selectedSize = customizationSize.ifBlank { product.size }
+        val subtotal = checkoutLineTotal(product.price + addOnTotal + sizeAdjustment, selectedSize, quantityValue, product.priceUnit)
         val vat = 0
         val grandTotal = subtotal
         quoteQty = quantityValue.toString()
@@ -2326,11 +3008,11 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
         }.joinToString("\n")
         latestQuoteNumber = buildQuoteNumber((requestCount + 1).coerceAtLeast(1))
         latestQuoteItemName = "${product.name} x$quantityValue"
-        latestQuoteUnitPrice = "₱${product.price}"
-        latestQuoteSubtotal = "₱$subtotal"
-        latestQuoteVat = "₱$vat"
+        latestQuoteUnitPrice = formatPeso(product.price)
+        latestQuoteSubtotal = formatPeso(subtotal)
+        latestQuoteVat = formatPeso(vat)
         latestQuotePanels = quantityValue.toString()
-        latestQuoteAmount = "₱$grandTotal"
+        latestQuoteAmount = formatPeso(grandTotal)
         lastQuoteSummary = latestQuoteItemName
         paymentStatusMessage = ""
         requestCount += 1
@@ -2359,16 +3041,22 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
             addressStreet = currentRegisteredUser?.streetAddress.orEmpty()
             addressCityProvince = currentRegisteredUser?.cityProvince.orEmpty()
             addressPostalCode = currentRegisteredUser?.postalCode.orEmpty()
+            addressEditingId = ""
+            addressEditorOpen = true
             addressScreenOpen = true
         } else {
             startCartCheckout(lines, returnTab = pendingCheckoutReturnTab)
         }
     }
 
-    BackHandler(enabled = paymentScreenOpen || addressScreenOpen || orderTrackingEntry != null || currentTab == Tab.Settings) {
+    BackHandler(enabled = showSavedPanels || paymentScreenOpen || addressScreenOpen || currentTab == Tab.Settings) {
         when {
+            showSavedPanels -> {
+                showSavedPanels = false
+                selectedSavedPanelIds = emptySet()
+                currentTab = savedPanelsReturnTab
+            }
             paymentScreenOpen -> closePayment()
-            orderTrackingEntry != null -> orderTrackingEntry = null
             addressScreenOpen -> {
                 addressScreenOpen = false
                 pendingCheckoutLines = null
@@ -2389,6 +3077,9 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
             currentTab == Tab.Settings && isSignedIn && settingsPage == SettingsPage.Home -> {
                 currentTab = settingsReturnTab
             }
+            currentTab == Tab.Settings && isSignedIn && settingsPage != SettingsPage.Home -> {
+                settingsPage = SettingsPage.Home
+            }
             currentTab == Tab.Settings -> {
                 currentTab = settingsReturnTab
             }
@@ -2402,7 +3093,7 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
     }
 
     LaunchedEffect(selectedProduct?.id) {
-        customizationSize = "2400×200mm"
+        customizationSize = selectedProduct?.size.orEmpty()
         selectedQuantity = 1
         customizationQuantity = "1"
         customizationFinish = "Matte"
@@ -2431,7 +3122,9 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                 }
                 if (backendMethods.isNotEmpty()) {
                     configuredPaymentMethods = backendMethods
-                    if (selectedPaymentMethod !in backendMethods) selectedPaymentMethod = ""
+                    if (selectedPaymentMethod !in backendMethods.filterNot { it.trim().equals("Bank Transfer", ignoreCase = true) }) {
+                        selectedPaymentMethod = ""
+                    }
                 }
             }
 
@@ -2484,25 +3177,19 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
             val savedQuotations = state.optJSONArray("savedQuotations") ?: JSONArray()
             val generatedQuotations = state.optJSONArray("quotations") ?: JSONArray()
             val customerEmailNeedle = signInEmail.trim().lowercase(Locale.US)
-            val customerNameNeedle = signInName.trim().lowercase(Locale.US)
             val historyByNumber = linkedMapOf<String, QuoteHistoryEntry>()
             var latestPersistedQuote: JSONObject? = null
             var latestPersistedCreatedAt = ""
 
-            fun belongsToCustomer(email: String, name: String): Boolean {
-                val normalizedEmail = email.trim().lowercase(Locale.US)
-                val normalizedName = name.trim().lowercase(Locale.US)
-                return (customerEmailNeedle.isNotBlank() && normalizedEmail == customerEmailNeedle) ||
-                    (customerNameNeedle.isNotBlank() && normalizedName == customerNameNeedle)
-            }
+            fun belongsToCustomer(email: String): Boolean =
+                customerEmailNeedle.isNotBlank() && email.trim().lowercase(Locale.US) == customerEmailNeedle
 
             for (index in 0 until generatedQuotations.length()) {
                 val record = generatedQuotations.optJSONObject(index) ?: continue
                 val customer = record.optJSONObject("customer") ?: JSONObject()
                 val quoteNumber = record.optString("quotation_no", "").trim()
                 val customerEmail = customer.optString("email", "")
-                val customerName = customer.optString("name", "")
-                if (quoteNumber.isBlank() || !belongsToCustomer(customerEmail, customerName)) continue
+                if (quoteNumber.isBlank() || !belongsToCustomer(customerEmail)) continue
                 val items = record.optJSONArray("items_snapshot") ?: JSONArray()
                 val summary = buildList {
                     for (itemIndex in 0 until items.length()) {
@@ -2510,7 +3197,21 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         add("${item.optString("panelModel", "Panel")} x${item.optInt("quantity", 1)}")
                     }
                 }.joinToString(", ")
-                val entry = QuoteHistoryEntry(quoteNumber, customerEmail, summary, formatPeso(record.optDouble("total", 0.0).toInt()), "Quotation ready", record.optString("created_at", ""))
+                val isUnfinished = isUnfinishedCustomerQuotation(record)
+                val entry = QuoteHistoryEntry(
+                    quoteNumber = quoteNumber,
+                    customerEmail = customerEmail,
+                    summary = summary,
+                    amount = formatPeso(record.optDouble("total", 0.0).toInt()),
+                    status = if (isUnfinished) "Unfinished quotation" else "Quotation ready",
+                    createdAt = record.optString("created_at", ""),
+                    isUnfinished = isUnfinished,
+                    itemsJson = items.toString(),
+                    businessJson = record.optJSONObject("business")?.toString().orEmpty(),
+                    issuedAt = record.optString("created_at", ""),
+                    subtotal = formatPeso(record.optDouble("subtotal", 0.0).toInt()),
+                    vat = formatPeso(record.optDouble("vat", 0.0).toInt())
+                )
                 historyByNumber[quoteNumber] = entry
                 if (entry.createdAt >= latestPersistedCreatedAt) {
                     latestPersistedCreatedAt = entry.createdAt
@@ -2522,8 +3223,7 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                 val record = paymentRequests.optJSONObject(index) ?: continue
                 val quoteNumber = record.optString("quote_number", record.optString("quoteNumber", "")).trim()
                 val customerEmail = record.optString("customer_email", record.optString("customerEmail", ""))
-                val customerName = record.optString("customer_name", record.optString("customerName", ""))
-                if (quoteNumber.isBlank() || !belongsToCustomer(customerEmail, customerName)) continue
+                if (quoteNumber.isBlank() || !belongsToCustomer(customerEmail)) continue
                 val entry = QuoteHistoryEntry(
                     quoteNumber = quoteNumber,
                     customerEmail = customerEmail,
@@ -2533,7 +3233,8 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         "Draft" -> "Estimate"
                         else -> record.optString("status", "Pending Review")
                     },
-                    createdAt = record.optString("created_at", record.optString("createdAt", ""))
+                    createdAt = record.optString("created_at", record.optString("createdAt", "")),
+                    isUnfinished = historyByNumber[quoteNumber]?.isUnfinished ?: false
                 )
                 historyByNumber[quoteNumber] = entry
                 if (entry.createdAt >= latestPersistedCreatedAt) {
@@ -2547,8 +3248,7 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                 val meta = record.optJSONObject("meta") ?: JSONObject()
                 val quoteNumber = record.optString("number", meta.optString("quotationNumber", "")).trim()
                 val customerEmail = meta.optString("emailAddress", "")
-                val customerName = meta.optString("customerName", record.optString("customerName", ""))
-                if (quoteNumber.isBlank() || !belongsToCustomer(customerEmail, customerName)) continue
+                if (quoteNumber.isBlank() || !belongsToCustomer(customerEmail)) continue
                 val items = record.optJSONArray("items") ?: JSONArray()
                 val summary = buildList {
                     for (itemIndex in 0 until items.length()) {
@@ -2572,7 +3272,13 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                     status = existingEntry?.status?.takeIf { it.isNotBlank() }
                         ?: record.optString("workflowStatus", meta.optString("workflowStatus", "Official quotation ready"))
                             .ifBlank { "Official quotation ready" },
-                    createdAt = maxOf(createdAt, existingEntry?.createdAt.orEmpty())
+                    createdAt = maxOf(createdAt, existingEntry?.createdAt.orEmpty()),
+                    isUnfinished = existingEntry?.isUnfinished
+                        ?: isUnfinishedCustomerQuotation(record),
+                    itemsJson = existingEntry?.itemsJson.orEmpty().ifBlank { items.toString() },
+                    issuedAt = existingEntry?.issuedAt.orEmpty().ifBlank { createdAt },
+                    subtotal = existingEntry?.subtotal.orEmpty().ifBlank { totals.optString("subtotal", "") },
+                    vat = existingEntry?.vat.orEmpty().ifBlank { totals.optString("vat", "") }
                 )
                 if (createdAt >= latestPersistedCreatedAt) {
                     latestPersistedCreatedAt = createdAt
@@ -2595,7 +3301,7 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                     normalizedPaymentStatus == "partially paid" -> "Payment partially received"
                     else -> "Awaiting payment"
                 }
-                historyByNumber[quoteNumber] = existing.copy(status = customerStatus)
+                historyByNumber[quoteNumber] = existing.copy(status = customerStatus, isUnfinished = false)
             }
 
             val history = historyByNumber.values.sortedByDescending { it.createdAt }
@@ -2603,7 +3309,7 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
 
             // Restore the latest saved quote into the payment screen after an
             // app restart. Previously the home screen could show an order
-            // update while the menu still said “No Pay” because only payment
+            // update while the menu still said â€œNo Payâ€ because only payment
             // requests were loaded into the quote state.
             latestPersistedQuote?.let { record ->
                 val meta = record.optJSONObject("meta") ?: JSONObject()
@@ -2616,17 +3322,21 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                 }
                 if (latestQuoteNumber.isBlank() && quoteNumber.isNotBlank()) {
                     latestQuoteNumber = quoteNumber
-                    latestQuoteItemName = buildList {
+                    latestQuotationItemsJson = record.optJSONArray("items_snapshot")?.toString()
+                        ?: items.toString()
+                    latestQuotationIssuedAt = record.optString("created_at").ifBlank { record.optString("savedAt") }
+                    latestQuotationBusinessJson = record.optJSONObject("business")?.toString().orEmpty()
+                    latestQuoteItemName = historyByNumber[quoteNumber]?.summary.orEmpty().ifBlank { buildList {
                         for (itemIndex in 0 until items.length()) {
                             val item = items.optJSONObject(itemIndex) ?: continue
                             add("${item.optString("name", "Panel")} x${item.optInt("qty", 1)}")
                         }
-                    }.joinToString(", ")
+                    }.joinToString(", ") }
                     latestQuoteUnitPrice = formatPeso(firstItem.optDouble("price", 0.0).toInt())
-                    latestQuoteSubtotal = formatPeso(totals.optDouble("subtotal", 0.0).toInt())
-                    latestQuoteVat = formatPeso(totals.optDouble("vat", 0.0).toInt())
+                    latestQuoteSubtotal = formatPeso(record.optDouble("subtotal", totals.optDouble("subtotal", 0.0)).toInt())
+                    latestQuoteVat = formatPeso(record.optDouble("vat", totals.optDouble("vat", 0.0)).toInt())
                     latestQuotePanels = (0 until items.length()).sumOf { items.optJSONObject(it)?.optInt("qty", 1) ?: 1 }.toString()
-                    latestQuoteAmount = formatPeso(totals.optDouble("grandTotal", 0.0).toInt())
+                    latestQuoteAmount = formatPeso(record.optDouble("total", totals.optDouble("grandTotal", 0.0)).toInt())
                     lastQuoteSummary = latestQuoteItemName
                 }
             }
@@ -2653,9 +3363,9 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         .background(Color.Black.copy(alpha = 0.32f))
                         .clickable { scope.launch { drawerState.close() } }
                 )
-                ModalDrawerSheet(
+            ModalDrawerSheet(
                     modifier = Modifier
-                        .width(320.dp)
+                    .fillMaxWidth(0.78f)
                         .fillMaxHeight()
                         .pointerInput(Unit) {
                             var horizontalDistance = 0f
@@ -2688,28 +3398,43 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                     paymentStatusMessage = paymentStatusMessage,
                     recentQuoteHistory = recentQuoteHistory,
                     customerOrderUpdates = customerOrderUpdates,
+                    onClose = { scope.launch { drawerState.close() } },
                     onOpenSettings = {
                         scope.launch {
                             drawerState.close()
-                            openSettings(page = SettingsPage.Home, returnTab = currentTab)
+                            openSettings(page = SettingsPage.Quotations, returnTab = currentTab)
+                        }
+                    },
+                    onResumeQuotation = { quote ->
+                        scope.launch {
+                            drawerState.close()
+                            resumeQuotation(quote)
+                        }
+                    },
+                    onEditQuotation = { quote ->
+                        if (editQuotationItems(quote)) scope.launch { drawerState.close() }
+                    },
+                    onDeleteQuotation = { quote ->
+                        try {
+                            deleteUnfinishedQuotation(context, quote.quoteNumber)
+                            clearCustomerCheckoutDraft(context, signInEmail, quote.quoteNumber)
+                            recentQuoteHistory = recentQuoteHistory.filterNot { it.quoteNumber == quote.quoteNumber }
+                            true
+                        } catch (error: Exception) {
+                            Toast.makeText(context, error.message ?: "Could not delete this unfinished quotation.", Toast.LENGTH_LONG).show()
+                            false
                         }
                     },
                     onOpenPayment = {
                         scope.launch {
                             drawerState.close()
-                            openPayment(returnTab = currentTab)
+                            currentTab = Tab.Cart
                         }
                     },
                     onOpenOrderUpdates = {
                         scope.launch {
                             drawerState.close()
                             showNotificationPanel = true
-                        }
-                    },
-                    onTrackOrder = { order ->
-                        scope.launch {
-                            drawerState.close()
-                            orderTrackingEntry = order
                         }
                     },
                     onOpenCatalog = {
@@ -2731,9 +3456,15 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
     ) {
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
-        modifier = Modifier.fillMaxSize().background(Color(0xFFFFF7EB)),
+        // Keep the customer UI comfortable to read on tablets and desktop-sized
+        // windows while still using the full available width on phones.
+        modifier = Modifier
+            .widthIn(max = 840.dp)
+            .fillMaxSize()
+            .align(Alignment.TopCenter)
+            .background(Color(0xFFFFF7EB)),
         topBar = {
-            if (!settingsAuthPageOpen && !paymentScreenOpen && !addressScreenOpen) {
+            if (!settingsAuthPageOpen && !settingsDetailPageOpen && !paymentScreenOpen && !addressScreenOpen) {
                 TopAppBar(
                     title = {
                         if (paymentScreenOpen) {
@@ -2767,8 +3498,9 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                             IconButton(onClick = {
                                 selectedSavedPanelIds = emptySet()
                                 showSavedPanels = false
+                                currentTab = savedPanelsReturnTab
                             }) {
-                                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back to customize")
+                                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
                             }
                         } else if (!paymentScreenOpen) {
                             IconButton(onClick = {
@@ -2805,6 +3537,8 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                 Spacer(Modifier.width(6.dp))
                                 Text("Back")
                             }
+                        } else if (showSavedPanels) {
+                            Unit
                         } else {
                             BadgedBox(
                                 badge = {
@@ -2845,7 +3579,7 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
             }
         },
         bottomBar = {
-            if (!settingsAuthPageOpen && !paymentScreenOpen && !addressScreenOpen) {
+            if (!settingsAuthPageOpen && !settingsDetailPageOpen && !paymentScreenOpen && !addressScreenOpen && !showSavedPanels) {
                     NavigationBar(
                         containerColor = Color(0xFFFFFCF8),
                         tonalElevation = 8.dp
@@ -2863,7 +3597,16 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                             }
                                         },
                                 icon = { Icon(item.icon, contentDescription = null) },
-                                label = { Text(item.label, fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                                label = {
+                                    Text(
+                                        item.label,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
                                 colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
                                     selectedIconColor = Color(0xFF2B2038),
                                     selectedTextColor = Color(0xFF2B2038),
@@ -2907,19 +3650,46 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                     customerCityProvince = currentRegisteredUser?.cityProvince.orEmpty(),
                     customerPostalCode = currentRegisteredUser?.postalCode.orEmpty(),
                     customerPhone = currentRegisteredUser?.mobileNumber.orEmpty(),
+                    deliveryRecipientName = currentRegisteredUser?.deliveryAddresses?.firstOrNull { it.isDefault }?.fullName.orEmpty(),
+                    deliveryRecipientPhone = currentRegisteredUser?.deliveryAddresses?.firstOrNull { it.isDefault }?.mobileNumber.orEmpty(),
                     selectedPaymentMethod = selectedPaymentMethod,
                     selectedDeliveryMethod = selectedDeliveryMethod,
+                    initialCheckoutStep = checkoutResumeStep,
+                    onCheckoutProgressChange = { step, courier, method ->
+                        checkoutResumeStep = step
+                        saveCustomerCheckoutDraft(
+                            context,
+                            signInEmail,
+                            latestQuoteNumber,
+                            CustomerCheckoutDraft(step = step, courier = courier, paymentMethod = method)
+                        )
+                    },
                     deliveryMethodOptions = deliveryMethodOptions,
                     paymentMethodOptions = paymentMethodOptions,
+                    onMarkQuotationUnfinished = {
+                        recentQuoteHistory = recentQuoteHistory.map { quote ->
+                            if (quote.quoteNumber == latestQuoteNumber) quote.copy(
+                                status = "Unfinished quotation",
+                                isUnfinished = true
+                            ) else quote
+                        }
+                        runCatching { updateQuotationCheckoutState(context, latestQuoteNumber, "unfinished") }
+                        true
+                    },
                     onPaymentMethodChange = { nextMethod -> selectedPaymentMethod = nextMethod },
                     onDeliveryMethodChange = { nextMethod -> selectedDeliveryMethod = nextMethod },
                     onPayNow = {
                         if (!isPaymentSubmitting) {
                             isPaymentSubmitting = true
+                            paymentStatusMessage = "Submitting your orderâ€¦"
                             scope.launch {
                                 try {
                                     if (signInEmail.isBlank() || latestQuoteNumber.isBlank()) {
                                         paymentStatusMessage = "Sign in and save a quote first."
+                                        return@launch
+                                    }
+                                    if (selectedPaymentMethod !in paymentMethodOptions || selectedDeliveryMethod !in deliveryMethodOptions) {
+                                        paymentStatusMessage = "Choose a payment method and courier before submitting your order."
                                         return@launch
                                     }
                                     if (currentRegisteredUser?.streetAddress.isNullOrBlank() ||
@@ -2941,6 +3711,8 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                                 streetAddress = currentRegisteredUser?.streetAddress.orEmpty(),
                                                 cityProvince = currentRegisteredUser?.cityProvince.orEmpty(),
                                                 postalCode = currentRegisteredUser?.postalCode.orEmpty(),
+                                                deliveryRecipientName = currentRegisteredUser?.deliveryAddresses?.firstOrNull { it.isDefault }?.fullName.orEmpty(),
+                                                deliveryRecipientPhone = currentRegisteredUser?.deliveryAddresses?.firstOrNull { it.isDefault }?.mobileNumber.orEmpty(),
                                                 paymentMethod = selectedPaymentMethod,
                                                 courier = selectedDeliveryMethod,
                                                 source = if (latestRoomCaptureUrl != null || showAutomaticEstimate) "AR" else "CATALOG",
@@ -2953,6 +3725,7 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                             val quotation = outcome?.optJSONObject("quotation")
                                             val totals = quotation?.optDouble("total", parsePesoAmount(latestQuoteAmount).toDouble()) ?: parsePesoAmount(latestQuoteAmount).toDouble()
                                             val submittedQuoteNumber = latestQuoteNumber
+                                            clearCustomerCheckoutDraft(context, signInEmail, submittedQuoteNumber)
                                             latestQuoteNumber = quotation?.optString("quotation_no", latestQuoteNumber).orEmpty()
                                             latestQuoteAmount = formatPeso(totals.toInt())
                                             recentQuoteHistory = recentQuoteHistory.map { entry ->
@@ -2992,58 +3765,93 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                             }
                         }
                         activeCheckoutLines = emptyList()
+                        clearCustomerCheckoutDraft(context, signInEmail, latestQuoteNumber)
                         paymentScreenOpen = false
                         paymentSubmitted = false
                         paymentStatusMessage = ""
                         currentTab = Tab.Home
                     },
-                    onBack = { closePayment() }
+                    onBack = {
+                        closePayment()
+                        scope.launch { drawerState.open() }
+                    }
                 )
             }
-        } else if (orderTrackingEntry != null) {
-            OrderTrackingScreen(
-                modifier = Modifier.padding(padding).fillMaxSize(),
-                order = orderTrackingEntry!!,
-                onBack = { orderTrackingEntry = null },
-            )
         } else if (addressScreenOpen) {
             AddressFormScreen(
                 modifier = Modifier.padding(padding).fillMaxSize(),
                 fullName = signInName,
                 mobileNumber = currentRegisteredUser?.mobileNumber.orEmpty(),
+                addressFullName = addressFullName,
+                addressMobileNumber = addressMobileNumber,
+                addresses = currentCustomerAddresses,
+                editorOpen = addressEditorOpen,
+                editingAddressId = addressEditingId,
                 streetAddress = addressStreet,
                 cityProvince = addressCityProvince,
                 postalCode = addressPostalCode,
                 onStreetAddressChange = { addressStreet = it },
                 onCityProvinceChange = { addressCityProvince = it },
                 onPostalCodeChange = { addressPostalCode = it },
+                onAddressFullNameChange = { addressFullName = it },
+                onAddressMobileNumberChange = { addressMobileNumber = it.filter(Char::isDigit).take(11) },
+                onAddAddress = {
+                    addressEditingId = ""
+                    addressFullName = ""
+                    addressMobileNumber = ""
+                    addressStreet = ""
+                    addressCityProvince = ""
+                    addressPostalCode = ""
+                    addressEditorOpen = true
+                },
+                onEditAddress = { address ->
+                    addressEditingId = address.id
+                    addressFullName = address.fullName.ifBlank { signInName }
+                    addressMobileNumber = address.mobileNumber.ifBlank { currentRegisteredUser?.mobileNumber.orEmpty() }
+                    addressStreet = address.streetAddress
+                    addressCityProvince = address.cityProvince
+                    addressPostalCode = address.postalCode
+                    addressEditorOpen = true
+                },
+                onSetDefaultAddress = { addressId ->
+                    val updatedAddresses = normalizeCustomerAddresses(currentCustomerAddresses).map { address ->
+                        address.copy(isDefault = address.id == addressId)
+                    }
+                    persistCustomerAddressList(updatedAddresses)
+                },
+                onCancelEdit = {
+                    addressEditorOpen = false
+                    addressEditingId = ""
+                    val defaultAddress = currentCustomerAddresses.firstOrNull { it.isDefault }
+                    addressStreet = defaultAddress?.streetAddress.orEmpty()
+                    addressCityProvince = defaultAddress?.cityProvince.orEmpty()
+                    addressPostalCode = defaultAddress?.postalCode.orEmpty()
+                    addressFullName = ""
+                    addressMobileNumber = ""
+                },
                 onBack = {
                     addressScreenOpen = false
                     pendingCheckoutLines = null
                 },
-                onCancel = {
-                    addressStreet = currentRegisteredUser?.streetAddress.orEmpty()
-                    addressCityProvince = currentRegisteredUser?.cityProvince.orEmpty()
-                    addressPostalCode = currentRegisteredUser?.postalCode.orEmpty()
-                },
-                onSave = {
-                    val existing = currentRegisteredUser ?: RegisteredUser(
-                        username = signInEmail.substringBefore("@").ifBlank { "customer" },
-                        firstName = signInName,
-                        lastName = "",
-                        middleName = "",
-                        dateOfBirth = "",
-                        gender = "",
-                        email = signInEmail,
-                        mobileNumber = ""
+                onSave = { address ->
+                    val existingAddresses = currentCustomerAddresses
+                    val existingAddress = existingAddresses.firstOrNull { it.id == addressEditingId }
+                    val savedAddress = address.copy(
+                        id = existingAddress?.id ?: address.id,
+                        label = address.label.ifBlank { existingAddress?.label ?: "Address ${existingAddresses.size + 1}" },
+                        isDefault = address.isDefault || existingAddress?.isDefault == true || existingAddresses.isEmpty()
                     )
-                    val updated = existing.copy(
-                        streetAddress = addressStreet.trim(),
-                        cityProvince = addressCityProvince.trim(),
-                        postalCode = addressPostalCode.trim()
+                    val nextAddresses = if (existingAddress == null) {
+                        existingAddresses + savedAddress
+                    } else {
+                        existingAddresses.map { if (it.id == existingAddress.id) savedAddress else it }
+                    }
+                    persistCustomerAddressList(
+                        if (savedAddress.isDefault) nextAddresses.map { it.copy(isDefault = it.id == savedAddress.id) }
+                        else nextAddresses
                     )
-                    upsertRegisteredUser(updated)
-                    scope.launch { saveCustomerRegistrationToBackend(context, updated) }
+                    addressEditorOpen = false
+                    addressEditingId = ""
                     pendingCheckoutLines?.let {
                         addressScreenOpen = false
                         startCartCheckout(it, returnTab = pendingCheckoutReturnTab)
@@ -3057,10 +3865,10 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                     .padding(padding)
                     .background(Color(0xFFFFF7EB))
                     .padding(
-                        start = if (settingsAuthPageOpen) 0.dp else 16.dp,
-                        top = if (settingsAuthPageOpen) 0.dp else 8.dp,
-                        end = if (settingsAuthPageOpen) 0.dp else 16.dp,
-                        bottom = if (settingsAuthPageOpen) 0.dp else 16.dp
+                        start = if (settingsAuthPageOpen || settingsDetailPageOpen || showSavedPanels) 0.dp else 16.dp,
+                        top = if (settingsAuthPageOpen || settingsDetailPageOpen || showSavedPanels) 0.dp else 8.dp,
+                        end = if (settingsAuthPageOpen || settingsDetailPageOpen || showSavedPanels) 0.dp else 16.dp,
+                        bottom = if (settingsAuthPageOpen || settingsDetailPageOpen || showSavedPanels) 0.dp else 16.dp
                     )
                     .fillMaxSize()
             ) {
@@ -3094,6 +3902,20 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                     profileCityProvince = currentRegisteredUser?.cityProvince.orEmpty(),
                     profilePostalCode = currentRegisteredUser?.postalCode.orEmpty(),
                     recentQuoteHistory = recentQuoteHistory,
+                    quotationAlertsEnabled = quotationAlertsEnabled,
+                    panelAlertsEnabled = panelAlertsEnabled,
+                    onQuotationAlertsChange = { enabled ->
+                        quotationAlertsEnabled = enabled
+                        notificationPreferences.edit()
+                            .putBoolean(notificationPreferenceKey(signInEmail, "quotations"), enabled)
+                            .apply()
+                    },
+                    onPanelAlertsChange = { enabled ->
+                        panelAlertsEnabled = enabled
+                        notificationPreferences.edit()
+                            .putBoolean(notificationPreferenceKey(signInEmail, "panels"), enabled)
+                            .apply()
+                    },
                     registeredUsers = registeredUsers,
                     authNotice = authNotice,
                     isAuthEmailRequestInFlight = isAuthEmailRequestInFlight,
@@ -3115,6 +3937,18 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                 password = currentRegisteredUser?.password.orEmpty(),
                                 createdAt = formatCaptureTimestamp()
                             )
+                            val profileAddresses = normalizeCustomerAddresses(
+                                sourceUser.deliveryAddresses,
+                                nextStreetAddress.trim(),
+                                nextCityProvince.trim(),
+                                nextPostalCode.trim()
+                            ).map { address ->
+                                if (address.isDefault) address.copy(
+                                    streetAddress = nextStreetAddress.trim(),
+                                    cityProvince = nextCityProvince.trim(),
+                                    postalCode = nextPostalCode.trim()
+                                ) else address
+                            }
                             val updatedUser = sourceUser.copy(
                                 username = nextUsername.trim().ifBlank { sourceUser.username },
                                 firstName = nextFirstName.trim().ifBlank { sourceUser.firstName },
@@ -3125,6 +3959,7 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                 streetAddress = nextStreetAddress.trim(),
                                 cityProvince = nextCityProvince.trim(),
                                 postalCode = nextPostalCode.trim(),
+                                deliveryAddresses = profileAddresses,
                                 createdAt = sourceUser.createdAt.ifBlank { formatCaptureTimestamp() }
                             )
 
@@ -3148,6 +3983,8 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         addressStreet = currentRegisteredUser?.streetAddress.orEmpty()
                         addressCityProvince = currentRegisteredUser?.cityProvince.orEmpty()
                         addressPostalCode = currentRegisteredUser?.postalCode.orEmpty()
+                        addressEditorOpen = false
+                        addressEditingId = ""
                         addressScreenOpen = true
                     },
                     onBackendBaseUrlChange = { backendUrlDraft = it },
@@ -3156,11 +3993,16 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         backendUrlDraft = loadConfiguredBackendBaseUrl(context)
                         syncTick += 1
                     },
-                    onOpenCatalog = { currentTab = Tab.Catalog },
-                    onChangePassword = { nextPassword ->
+                    onOpenCatalog = {
+                        savedPanelsReturnTab = Tab.Settings
+                        selectedSavedPanelIds = emptySet()
+                        showSavedPanels = true
+                        currentTab = Tab.Customization
+                    },
+                    onChangePassword = { currentPassword, nextPassword ->
                         val email = signInEmail.trim()
                         val passwordOwnerEmail = email.ifBlank { pendingRecoveryEmail }
-                        if (passwordOwnerEmail.isNotBlank()) {
+                        if (passwordOwnerEmail.isNotBlank() && !isAuthEmailRequestInFlight) {
                             val existingUser = registeredUsers.firstOrNull { it.email.equals(passwordOwnerEmail, ignoreCase = true) }
                             val baseUser = existingUser ?: RegisteredUser(
                                 username = signInName.substringBefore(" ").lowercase(Locale.getDefault()).ifBlank { passwordOwnerEmail.substringBefore("@") },
@@ -3175,10 +4017,18 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                 createdAt = currentRegisteredUser?.createdAt.orEmpty().ifBlank { formatCaptureTimestamp() }
                             )
                             val updatedUser = baseUser.copy(password = "")
+                            isAuthEmailRequestInFlight = true
                             scope.launch {
                                 runCatching {
-                                    val session = loadSupabaseSession(context)
-                                        ?: throw IllegalStateException("Sign in again to change your password.")
+                                    val session = if (settingsPage == SettingsPage.Password) {
+                                        if (currentPassword.isBlank()) throw IllegalStateException("Enter your current password.")
+                                        signInWithPassword(passwordOwnerEmail, currentPassword).getOrThrow().also {
+                                            saveSupabaseSession(context, it)
+                                        }
+                                    } else {
+                                        loadSupabaseSession(context)
+                                            ?: throw IllegalStateException("Sign in again to change your password.")
+                                    }
                                     supabaseRequest(
                                         path = "auth/v1/user",
                                         method = "PUT",
@@ -3196,6 +4046,8 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                         authNotice = "Password updated. You can now sign in with your new password."
                                     } else {
                                         authNotice = "Password updated."
+                                        settingsPage = SettingsPage.Home
+                                        settingsLastAuthPage = SettingsPage.Home
                                     }
                                 }.onFailure { error ->
                                     Toast.makeText(
@@ -3204,6 +4056,8 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                             ?: "Password update could not be synced right now.",
                                         Toast.LENGTH_SHORT
                                     ).show()
+                                }.also {
+                                    isAuthEmailRequestInFlight = false
                                 }
                             }
                         }
@@ -3213,14 +4067,17 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         currentTab = Tab.Settings
                         settingsPage = SettingsPage.Register
                         settingsLastAuthPage = SettingsPage.Register
-                        authNotice = "Sending a confirmation link to ${user.email}..."
+                        authNotice = "Sending a verification code to ${user.email}..."
                         isAuthEmailRequestInFlight = true
+                        pendingSignupUser = user.copy(password = "")
+                        savePendingSignupUser(context, user)
                         scope.launch {
                             try {
                                 val result = requestSignupConfirmationEmail(user)
                                 result.onSuccess { session ->
                                     if (session != null) {
                                         pendingSignupUser = null
+                                        clearPendingSignupUser(context)
                                         val confirmedUser = user.copy(password = "")
                                         upsertRegisteredUser(confirmedUser)
                                         // Keep the admin dashboard's shared customer
@@ -3228,7 +4085,9 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                         // mobile app. Previously signup only updated
                                         // this device's local preferences.
                                         scope.launch {
-                                            saveCustomerRegistrationToBackend(context, confirmedUser)
+                                            if (!saveCustomerRegistrationWithRetry(context, confirmedUser)) {
+                                                authNotice = "Your account is active, but profile sync is delayed. Keep the app online and try again later."
+                                            }
                                         }
                                         applyAuthenticatedSession(
                                             displayName = session.displayName,
@@ -3243,7 +4102,7 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                         isSignedIn = false
                                         signInName = "Guest User"
                                         signInEmail = ""
-                                        pendingSignupUser = user
+                                        pendingSignupUser = user.copy(password = "")
                                         currentTab = Tab.Settings
                                         pendingOtpType = "signup"
                                         settingsPage = SettingsPage.VerifyEmail
@@ -3251,8 +4110,18 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                         authNotice = "Enter the verification code sent to ${user.email}."
                                     }
                                 }.onFailure { error ->
-                                    pendingSignupUser = null
-                                    authNotice = error.message?.takeIf { it.isNotBlank() } ?: "Could not send the verification email."
+                                    if (isSupabaseNetworkError(error)) {
+                                        pendingSignupUser = user.copy(password = "")
+                                        currentTab = Tab.Settings
+                                        pendingOtpType = "signup"
+                                        settingsPage = SettingsPage.VerifyEmail
+                                        settingsLastAuthPage = SettingsPage.VerifyEmail
+                                        authNotice = "Connection interrupted. If a code arrived, enter it here or request a new code."
+                                    } else {
+                                        pendingSignupUser = null
+                                        clearPendingSignupUser(context)
+                                        authNotice = error.message?.takeIf { it.isNotBlank() } ?: "Could not send the verification email. Check your connection and try again."
+                                    }
                                 }
                             } finally {
                                 isAuthEmailRequestInFlight = false
@@ -3289,6 +4158,27 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                             }
                         }
                     },
+                    onResendVerificationCode = resendCode@{ email, type ->
+                        if (isAuthEmailRequestInFlight) return@resendCode
+                        if (email.isBlank() || type !in setOf("signup", "recovery")) {
+                            authNotice = "Request a new verification code and try again."
+                            return@resendCode
+                        }
+                        isAuthEmailRequestInFlight = true
+                        authNotice = "Sending a new code to $email..."
+                        scope.launch {
+                            try {
+                                resendVerificationCode(email, type)
+                                    .onSuccess { authNotice = "A new verification code was sent to $email." }
+                                    .onFailure { error ->
+                                        authNotice = error.message?.takeIf { it.isNotBlank() }
+                                            ?: "Could not resend the code. Wait a moment and try again."
+                                    }
+                            } finally {
+                                isAuthEmailRequestInFlight = false
+                            }
+                        }
+                    },
                     onVerifyEmailOtp = { code ->
                         val email = if (pendingOtpType == "signup") pendingSignupUser?.email.orEmpty() else pendingRecoveryEmail
                         if (email.isBlank() || pendingOtpType !in setOf("signup", "recovery")) {
@@ -3303,16 +4193,20 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                             if (pendingOtpType == "signup") {
                                                 val user = pendingSignupUser
                                                 if (user == null) {
+                                                    clearPendingSignupUser(context)
                                                     authNotice = "Your code was verified. Please sign in to continue."
                                                     settingsPage = SettingsPage.Login
                                                     settingsLastAuthPage = SettingsPage.Login
                                                 } else {
                                                     val confirmedUser = user.copy(password = "")
                                                     upsertRegisteredUser(confirmedUser)
+                                                    clearPendingSignupUser(context)
                                                     // Persist the confirmed mobile account
                                                     // to the same backend read by Admin.
                                                     scope.launch {
-                                                        saveCustomerRegistrationToBackend(context, confirmedUser)
+                                                        if (!saveCustomerRegistrationWithRetry(context, confirmedUser)) {
+                                                            authNotice = "Your account is active, but profile sync is delayed. Keep the app online and try again later."
+                                                        }
                                                     }
                                                     applyAuthenticatedSession(user.displayName, session.email, session)
                                                     pendingSignupUser = null
@@ -3394,51 +4288,51 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         }
                     },
                     onUseDemoAccount = {
-                        val demoEmail = "demo@aiyige.local"
+                        val demoEmail = DEMO_CUSTOMER_EMAIL
                         val demoUser = RegisteredUser(
-                            username = "demo-customer",
-                            firstName = "Demo",
+                            username = "aiyige-demo",
+                            firstName = "Aiyige Demo",
                             lastName = "Customer",
                             middleName = "",
-                            dateOfBirth = "01/01/1990",
-                            gender = "Rather not to say",
+                            dateOfBirth = "",
+                            gender = "Prefer not to say",
                             email = demoEmail,
                             mobileNumber = "09170000000",
-                            streetAddress = "Demo Test Address",
+                            streetAddress = "Sample Street, Barangay Demo",
                             cityProvince = "Quezon City, Metro Manila",
                             postalCode = "1100",
                             password = "",
                             createdAt = formatCaptureTimestamp()
                         )
-                        registeredUsers.removeAll { it.email.equals(demoEmail, ignoreCase = true) }
+                        registeredUsers.removeAll {
+                            it.email.equals(demoEmail, ignoreCase = true) ||
+                                it.email.equals(LEGACY_DEMO_CUSTOMER_EMAIL, ignoreCase = true)
+                        }
+                        saveRegisteredUsersToPrefs(context, registeredUsers.toList())
                         registeredUsers.add(demoUser)
                         isDemoAccount = true
                         isSignedIn = true
                         signInName = demoUser.displayName
                         signInEmail = demoEmail
-                        requestCount = 1
-                        latestQuoteNumber = "QT-2026-001"
-                        latestQuoteItemName = "F-44 x1"
-                        latestQuoteUnitPrice = "₱70"
-                        latestQuoteSubtotal = "₱70"
-                        latestQuoteVat = "₱8"
-                        latestQuotePanels = "1"
-                        latestQuoteAmount = "₱78"
-                        lastQuoteSummary = "F-44 x1"
-                        selectedPaymentMethod = "Cash"
-                        paymentSubmitted = true
-                        paymentStatusMessage = "Paid"
-                        recentQuoteHistory = listOf(
-                            QuoteHistoryEntry(
-                                quoteNumber = "QT-2026-001",
-                                customerEmail = demoEmail,
-                                summary = "F-44 x1",
-                                amount = "₱78",
-                                status = "Paid",
-                                createdAt = formatCaptureTimestamp()
-                            )
-                        )
-                        authNotice = "Demo customer mode is active. Quotes and orders use the demo account."
+                        requestCount = 0
+                        latestQuoteNumber = ""
+                        latestQuotationItemsJson = ""
+                        latestQuotationIssuedAt = ""
+                        latestQuotationBusinessJson = ""
+                        latestQuoteItemName = ""
+                        latestQuoteUnitPrice = ""
+                        latestQuoteSubtotal = ""
+                        latestQuoteVat = ""
+                        latestQuotePanels = ""
+                        latestQuoteAmount = ""
+                        lastQuoteSummary = null
+                        recentQuoteHistory = emptyList()
+                        customerOrderUpdates = emptyList()
+                        selectedPaymentMethod = ""
+                        selectedDeliveryMethod = ""
+                        paymentSubmitted = false
+                        paymentStatusMessage = ""
+                        authNotice = "Demo profile ready. Your quotation history is empty."
                         pendingPostLoginTab = ""
                         currentTab = Tab.Settings
                         settingsPage = SettingsPage.Home
@@ -3447,7 +4341,11 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                     onSignOut = {
                         clearSupabaseSession(context)
                         clearLocalSession(context)
-                        registeredUsers.removeAll { it.email.equals("demo@aiyige.local", ignoreCase = true) }
+                        registeredUsers.removeAll {
+                            it.email.equals(DEMO_CUSTOMER_EMAIL, ignoreCase = true) ||
+                                it.email.equals(LEGACY_DEMO_CUSTOMER_EMAIL, ignoreCase = true)
+                        }
+                        saveRegisteredUsersToPrefs(context, registeredUsers.toList())
                         isSignedIn = false
                         isDemoAccount = false
                         signInName = "Guest User"
@@ -3482,8 +4380,10 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         panelOptions = products.filter { it.modelUrl != null },
                         isSignedIn = isSignedIn,
                         finish = customizationFinish,
+                        colour = customizationColour,
                         tintHex = customizationColourHex(customizationColour),
                         textureAsset = customizationTextureAsset(customizationColour),
+                        addOns = selectedAddOns.toList(),
                         pattern = customizationPattern,
                         size = customizationSize,
                         quantity = customizationQuantity,
@@ -3511,89 +4411,49 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         },
                         onPanelSelected = { selectedProductId = it },
                         onBackToCatalog = { currentTab = Tab.Catalog },
-                        onSaveToQuote = {
-                            if (selectedProduct != null) {
-                                val quantityValue = customizationQuantity.ifBlank { "1" }
-                                val numericQuantity = quantityValue.toIntOrNull()?.coerceAtLeast(1) ?: 1
-                                val addOnTotal = selectedAddOns.fold(0) { total, addOn ->
-                                    total + when (addOn) {
-                                        "Fixings Kit" -> 18
-                                        "Pro Adhesive" -> 12
-                                        "Edge Trim" -> 24
-                                        else -> 0
-                                    }
-                                }
-                                val sizeAdjustment = if (customizationSize.contains("300")) 12 else 0
-                                val subtotal = (selectedProduct.price + addOnTotal + sizeAdjustment) * numericQuantity
-                                val vat = 0
-                                val grandTotal = subtotal
-                                quoteQty = quantityValue
-                                quoteNotes = buildList {
-                                    add("Finish: $customizationFinish")
-                                    add("Colour: $customizationColour")
-                                    add("View: ${if (customizationIs3d) "3D" else "2D"}")
-                                    add("Size: ${customizationSize.ifBlank { selectedProduct.size }}")
-                                    if (selectedAddOns.isNotEmpty()) add("Add-ons: ${selectedAddOns.joinToString(", ")}")
-                                    if (latestRoomCaptureUrl != null) add("Room capture: attached")
-                                    if (customizationNotes.isNotBlank()) add(customizationNotes)
-                                }.joinToString("\n")
-                                latestQuoteNumber = buildQuoteNumber((requestCount + 1).coerceAtLeast(1))
-                                latestQuoteItemName = selectedProduct.name
-                                latestQuoteUnitPrice = "₱${selectedProduct.price}"
-                            latestQuoteSubtotal = "₱${subtotal}"
-                            latestQuoteVat = "₱${vat}"
-                                latestQuotePanels = numericQuantity.toString()
-                            latestQuoteAmount = "₱${grandTotal}"
-                                lastQuoteSummary = "${selectedProduct.name} x$numericQuantity"
-                                paymentStatusMessage = ""
-                                requestCount += 1
-                                recentQuoteHistory = listOf(
-                                    QuoteHistoryEntry(
-                                        quoteNumber = latestQuoteNumber,
-                                        customerEmail = signInEmail.ifBlank { customerReferenceName },
-                                        summary = lastQuoteSummary.orEmpty(),
-                                        amount = latestQuoteAmount,
-                                        status = "Draft",
-                                        createdAt = formatCaptureTimestamp()
-                                    )
-                                ) + recentQuoteHistory
-                                if (isSignedIn && signInEmail.isNotBlank()) {
-                                    scope.launch {
-                                        val result = savePaymentRequestToSupabase(
-                                            context = context,
-                                            payload = PaymentRecordPayload(
-                                                quoteNumber = latestQuoteNumber,
-                                                customerName = customerReferenceName,
-                                                customerEmail = signInEmail,
-                                                contactNumber = currentRegisteredUser?.mobileNumber.orEmpty(),
-                                                streetAddress = currentRegisteredUser?.streetAddress.orEmpty(),
-                                                cityProvince = currentRegisteredUser?.cityProvince.orEmpty(),
-                                                postalCode = currentRegisteredUser?.postalCode.orEmpty(),
-                                                paymentMethod = selectedPaymentMethod,
-                                                deliveryMethod = selectedDeliveryMethod,
-                                                itemName = selectedProduct.name,
-                                                panels = numericQuantity,
-                                                unitPrice = selectedProduct.price,
-                                                subtotal = subtotal,
-                                                vat = vat,
-                                                totalAmount = grandTotal,
-                                                summary = lastQuoteSummary.orEmpty(),
-                                                roomCaptureUrl = latestRoomCaptureUrl,
-                                                notes = quoteNotes,
-                                                status = "Draft"
-                                            )
-                                        )
-                                        paymentStatusMessage = result.fold(
-                                            onSuccess = { it.message },
-                                            onFailure = { it.message ?: "Saved to this device." }
-                                        )
-                                    }
+                        onSaveToQuote = { counts, savedCustomizations ->
+                            val lines = counts.mapNotNull { (productId, count) ->
+                                val product = products.firstOrNull { it.id == productId } ?: return@mapNotNull null
+                                val savedCustomization = savedCustomizations[productId]
+                                val customization = savedCustomization?.copy(
+                                    notes = buildList {
+                                        add("Requested quantity: $count")
+                                        add(savedCustomization.notes)
+                                        if (latestRoomCaptureUrl != null) add("Room capture attached")
+                                    }.filter(String::isNotBlank).joinToString("\n")
+                                ) ?: CheckoutCustomization(
+                                    size = customizationSize.ifBlank { product.size },
+                                    finish = customizationFinish,
+                                    colour = customizationColour,
+                                    addOns = selectedAddOns.toList(),
+                                    notes = buildList {
+                                        add("Requested quantity: $count")
+                                        add("Pattern: $customizationPattern")
+                                        if (latestRoomCaptureUrl != null) add("Room capture attached")
+                                        if (customizationNotes.isNotBlank()) add(customizationNotes.trim())
+                                    }.joinToString("\n")
+                                )
+                                CartLine(product, count, customization = customization)
+                            }
+                            if (lines.isNotEmpty()) {
+                                customizationQuantity = counts.values.sum().toString()
+                                if (currentRegisteredUser?.streetAddress.isNullOrBlank() ||
+                                    currentRegisteredUser?.cityProvince.isNullOrBlank() ||
+                                    currentRegisteredUser?.postalCode.isNullOrBlank()
+                                ) {
+                                    pendingCheckoutLines = lines
+                                    pendingCheckoutReturnTab = Tab.Ar
+                                    addressStreet = currentRegisteredUser?.streetAddress.orEmpty()
+                                    addressCityProvince = currentRegisteredUser?.cityProvince.orEmpty()
+                                    addressPostalCode = currentRegisteredUser?.postalCode.orEmpty()
+                                    addressFullName = ""
+                                    addressMobileNumber = ""
+                                    addressEditingId = ""
+                                    addressEditorOpen = true
+                                    addressScreenOpen = true
                                 } else {
-                                    paymentStatusMessage = "Quote draft saved on this device. Sign in again to sync it online."
+                                    startCartCheckout(lines, returnTab = Tab.Ar)
                                 }
-                                currentTab = Tab.Ar
-                                showAutomaticEstimate = true
-                                Toast.makeText(context, "Quotation request sent. The seller will prepare the quotation.", Toast.LENGTH_LONG).show()
                             }
                         }
                     )
@@ -3714,6 +4574,10 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                 addressStreet = currentRegisteredUser?.streetAddress.orEmpty()
                                 addressCityProvince = currentRegisteredUser?.cityProvince.orEmpty()
                                 addressPostalCode = currentRegisteredUser?.postalCode.orEmpty()
+                                addressFullName = ""
+                                addressMobileNumber = ""
+                                addressEditorOpen = true
+                                addressEditingId = ""
                                 addressScreenOpen = true
                             } else {
                                 pendingCheckoutLines = null
@@ -3743,6 +4607,7 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         onFinishChange = { customizationFinish = it },
                         onSizeChange = { customizationSize = it },
                         onColourChange = { customizationColour = it },
+                        onPatternChange = { customizationPattern = it },
                         on3dChange = { customizationIs3d = it },
                         onQuantityChange = { next ->
                             val safeQuantity = next.toIntOrNull()?.coerceAtLeast(1) ?: 1
@@ -3757,20 +4622,23 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         },
                         onGoToCatalog = { currentTab = Tab.Catalog },
                         onPreviewInAr = { currentTab = Tab.Ar },
-                        onOpenSavedPanels = { showSavedPanels = true },
+                        onOpenSavedPanels = {
+                            savedPanelsReturnTab = Tab.Customization
+                            showSavedPanels = true
+                        },
                         onSaveCustomization = {
-                            val addOnPrices = mapOf("Fixings Kit" to 18, "Pro Adhesive" to 12, "Edge Trim" to 24)
-                            val fixingPrice = if (customizationSize.contains("300")) 12 else 0
-                            val total = selectedProduct?.price?.plus(fixingPrice)?.plus(
-                                customizationAddOnValues(addOnPrices, customizationAddOnsCsv)
-                            ) ?: 0
                             selectedProduct?.let { product ->
+                                val size = customizationSize.ifBlank { product.size }
+                                val quantity = customizationQuantity.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                                val unitPrice = product.price + checkoutSizeAdjustment(size) +
+                                    customizationAddOnValues(CHECKOUT_ADD_ON_PRICES, customizationAddOnsCsv)
+                                val total = checkoutLineTotal(unitPrice, size, quantity, selectedProduct.priceUnit)
                                 savedCustomizations = (
                                     savedCustomizations.filterNot { it.productId == product.id } +
                                         SavedCustomization(
                                             productId = product.id,
                                             productName = product.name,
-                                            size = customizationSize,
+                                            size = size,
                                             colour = customizationColour,
                                             finish = customizationFinish,
                                             quantity = customizationQuantity,
@@ -3803,11 +4671,12 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
     }
     }
 
-    val notificationItems = remember(customerOrderUpdates, recentQuoteHistory) {
+    val notificationItems = remember(customerOrderUpdates, recentQuoteHistory, savedCustomizations, quotationAlertsEnabled, panelAlertsEnabled) {
         val ordersByQuote = customerOrderUpdates
             .filter { it.invoice.isNotBlank() }
             .associateBy { it.invoice }
         buildList {
+            if (quotationAlertsEnabled) {
             customerOrderUpdates.distinctBy { it.invoice }.take(3).forEach { order ->
                 val quote = recentQuoteHistory.firstOrNull { it.quoteNumber == order.invoice }
                 val message = if (quote != null) {
@@ -3819,10 +4688,18 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                     CustomerNotification(
                         reference = order.invoice,
                         title = if (order.deliveryStatus.equals("Delivered", true)) "Order delivered" else "Order update",
-                        message = message,
+                        message = if (order.paymentStatus.trim().lowercase(Locale.US) in setOf("paid", "completed", "settled")) {
+                            message
+                        } else {
+                            "Your order is confirmed. ${order.paymentStatus.ifBlank { "Payment is pending" }}."
+                        },
                         itemSummary = order.products.ifBlank { quote?.summary ?: "Panel order" },
                         amount = formatPeso(order.amount),
-                        status = order.deliveryStatus.ifBlank { "Processing" },
+                        status = if (order.paymentStatus.trim().lowercase(Locale.US) in setOf("paid", "completed", "settled")) {
+                            order.deliveryStatus.ifBlank { "Paid" }
+                        } else {
+                            order.paymentStatus.ifBlank { order.deliveryStatus.ifBlank { "Processing" } }
+                        },
                         updatedAt = order.updatedAt,
                         quote = quote,
                         isOrder = true
@@ -3832,9 +4709,11 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
             recentQuoteHistory
                 .filter { it.quoteNumber !in ordersByQuote }
                 .distinctBy { it.quoteNumber }
+                .sortedByDescending { it.isUnfinished }
                 .take(3)
                 .forEach { quote ->
                     val (title, message) = when {
+                        quote.isUnfinished -> "Unfinished quotation" to "You have an unfinished quotation. Tap to continue checkout."
                         quote.status.equals("Draft", ignoreCase = true) -> "Quotation request" to "Waiting for the seller's official quotation"
                         quote.status.equals("Paid", ignoreCase = true) -> "Payment received" to "Your payment has been recorded"
                         quote.status.contains("Ready", ignoreCase = true) -> "Quotation ready" to "Your automatic quotation is ready to view"
@@ -3847,7 +4726,7 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                             message = message,
                             itemSummary = quote.summary,
                             amount = quote.amount.trim().let { value ->
-                                if (value.startsWith("₱")) value else "₱$value"
+                                if (value.startsWith("\u20B1")) value else "\u20B1$value"
                             },
                             status = quote.status,
                             updatedAt = quote.createdAt,
@@ -3855,6 +4734,23 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         )
                     )
                 }
+            }
+            if (panelAlertsEnabled) {
+                savedCustomizations.take(3).forEach { savedPanel ->
+                    add(
+                        CustomerNotification(
+                            reference = "PANEL-${savedPanel.productId}",
+                            title = "Saved panel",
+                            message = "This customized panel is saved in your panel library.",
+                            itemSummary = "${savedPanel.productName} Â· ${savedPanel.size}",
+                            amount = formatPeso(savedPanel.total),
+                            status = "Saved design",
+                            updatedAt = "In your saved panels",
+                            isPanelAlert = true
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -3864,13 +4760,16 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Card(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.86f)
+                    .padding(horizontal = 18.dp),
                 shape = RoundedCornerShape(28.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFBF6)),
                 elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                    modifier = Modifier.fillMaxSize().padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Row(
@@ -3878,9 +4777,9 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text("Notifications", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF121826))
-                            Text("Your orders and quotation updates", fontSize = 12.sp, color = Color(0xFF667085))
+                            Text("Order, quotation, and saved panel updates", fontSize = 12.sp, color = Color(0xFF667085))
                         }
                         IconButton(onClick = { showNotificationPanel = false }) {
                             Icon(Icons.Outlined.Close, contentDescription = "Close notifications", tint = Color(0xFF667085))
@@ -3892,7 +4791,10 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                         }
                     } else {
                         Column(
-                            modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             notificationItems.forEach { item ->
@@ -3903,7 +4805,14 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                     else -> Color(0xFFF06416)
                                 }
                                 Card(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(enabled = item.quote?.isUnfinished == true) {
+                                            item.quote?.let { quote ->
+                                                showNotificationPanel = false
+                                                resumeQuotation(quote)
+                                            }
+                                        },
                                     colors = CardDefaults.cardColors(containerColor = Color.White),
                                     shape = RoundedCornerShape(18.dp),
                                     border = BorderStroke(1.dp, Color(0xFFEDE3D8))
@@ -3911,7 +4820,16 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                             Box(Modifier.size(34.dp).background(Color(0xFFFFE8D1), CircleShape), contentAlignment = Alignment.Center) {
-                                                Icon(if (item.isOrder) Icons.Outlined.ShoppingBag else Icons.Outlined.ReceiptLong, contentDescription = null, tint = Color(0xFFF06416), modifier = Modifier.size(18.dp))
+                                                Icon(
+                                                    when {
+                                                        item.isOrder -> Icons.Outlined.ShoppingBag
+                                                        item.isPanelAlert -> Icons.Outlined.BookmarkBorder
+                                                        else -> Icons.Outlined.ReceiptLong
+                                                    },
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFF06416),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
                                             }
                                             Text(item.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, color = Color(0xFF121826), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         }
@@ -3949,7 +4867,37 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
             confirmButton = {
                 TextButton(onClick = {
                     showAutomaticEstimate = false
-                    selectedProduct?.let { startCartCheckout(listOf(CartLine(it, customizationQuantity.toIntOrNull()?.coerceAtLeast(1) ?: 1))) }
+                    selectedProduct?.let {
+                        val customization = CheckoutCustomization(
+                            size = customizationSize.ifBlank { it.size },
+                            finish = customizationFinish,
+                            colour = customizationColour,
+                            addOns = selectedAddOns.toList(),
+                            notes = customizationNotes.trim()
+                        )
+                        val lines = listOf(CartLine(it, customizationQuantity.toIntOrNull()?.coerceIn(1, 10_000) ?: 1, customization = customization))
+                        if (!isSignedIn) {
+                            pendingCheckoutLines = lines
+                            pendingCheckoutReturnTab = Tab.Customization
+                            openSettings(page = SettingsPage.Login, returnTab = Tab.Customization)
+                        } else if (currentRegisteredUser?.streetAddress.isNullOrBlank() ||
+                            currentRegisteredUser?.cityProvince.isNullOrBlank() ||
+                            currentRegisteredUser?.postalCode.isNullOrBlank()
+                        ) {
+                            pendingCheckoutLines = lines
+                            pendingCheckoutReturnTab = Tab.Customization
+                            addressStreet = currentRegisteredUser?.streetAddress.orEmpty()
+                            addressCityProvince = currentRegisteredUser?.cityProvince.orEmpty()
+                            addressPostalCode = currentRegisteredUser?.postalCode.orEmpty()
+                            addressFullName = ""
+                            addressMobileNumber = ""
+                            addressEditingId = ""
+                            addressEditorOpen = true
+                            addressScreenOpen = true
+                        } else {
+                            startCartCheckout(lines, returnTab = Tab.Customization)
+                        }
+                    }
                 }) { Text("Yes, continue to buy") }
             },
             dismissButton = {
@@ -3963,9 +4911,9 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                     Divider()
                     Text("Request ${latestQuoteNumber.ifBlank { "Pending" }}", fontWeight = FontWeight.Bold)
                     Text(latestQuoteItemName.ifBlank { "Customized panel" })
-                    Text("Subtotal: ${latestQuoteSubtotal.ifBlank { "₱0" }}")
-                    Text("VAT: ${latestQuoteVat.ifBlank { "₱0" }}")
-                    Text("Estimated total: ${latestQuoteAmount.ifBlank { "₱0" }}", fontWeight = FontWeight.Bold, color = Color(0xFFF06416))
+                    Text("Subtotal: ${latestQuoteSubtotal.ifBlank { formatPeso(0) }}")
+                    Text("VAT: ${latestQuoteVat.ifBlank { formatPeso(0) }}")
+                    Text("Estimated total: ${latestQuoteAmount.ifBlank { formatPeso(0) }}", fontWeight = FontWeight.Bold, color = Color(0xFFF06416))
                 }
             }
         )
@@ -4055,8 +5003,8 @@ private fun CustomerApp(recoveryRedirectEvents: SharedFlow<Uri> = MutableSharedF
                                     )
                                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                         Text(saved.productName, fontWeight = FontWeight.Bold, color = Color(0xFF121826), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text("${saved.colour} · ${saved.size}", color = Color(0xFF667085), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text("${saved.finish} finish · Qty ${saved.quantity}", color = Color(0xFF98A2B3), fontSize = 10.sp)
+                                        Text("${saved.colour} Â· ${saved.size}", color = Color(0xFF667085), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("${saved.finish} finish Â· Qty ${saved.quantity}", color = Color(0xFF98A2B3), fontSize = 10.sp)
                                     }
                                     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         Text(formatPeso(saved.total), fontWeight = FontWeight.ExtraBold, color = Color(0xFFF06416), fontSize = 13.sp)
@@ -4170,7 +5118,7 @@ private fun SavedPanelsScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         if (isSelected) {
-                            Text("✓", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Outlined.Check, contentDescription = "Selected", tint = Color.White, modifier = Modifier.size(14.dp))
                         }
                     }
                     Box(
@@ -4217,8 +5165,8 @@ private fun SavedPanelsScreen(
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(saved.productName, fontWeight = FontWeight.Bold, color = Color(0xFF121826), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("${saved.colour} · ${saved.size}", color = Color(0xFF667085), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("${saved.finish} finish · Qty ${saved.quantity}", color = Color(0xFF98A2B3), fontSize = 10.sp)
+                        Text("${saved.colour} Â· ${saved.size}", color = Color(0xFF667085), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${saved.finish} finish Â· Qty ${saved.quantity}", color = Color(0xFF98A2B3), fontSize = 10.sp)
                     }
                     Text(formatPeso(saved.total), color = Color(0xFFF06416), fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
                 }
@@ -4245,43 +5193,76 @@ private fun SavedPanelsScreen(
     }
 }
 
-private suspend fun loadCustomerOrderUpdates(
+private suspend fun loadCustomerSharedSnapshot(
     context: Context,
-    email: String,
-    customerName: String
-): List<CustomerOrderUpdate> = withContext(Dispatchers.IO) {
-    val state = fetchBackendState(context) ?: return@withContext emptyList()
-    val orders = state.optJSONArray("orders") ?: return@withContext emptyList()
+    email: String
+): CustomerSharedSnapshot? = withContext(Dispatchers.IO) {
+    val state = fetchMobileSync(context, email) ?: return@withContext null
     val normalizedEmail = email.trim().lowercase(Locale.US)
-    val normalizedName = customerName.trim().lowercase(Locale.US)
-    buildList {
-        for (index in 0 until orders.length()) {
-            val order = orders.optJSONObject(index) ?: continue
+    val orders = buildList {
+        val records = state.optJSONArray("orders") ?: JSONArray()
+        for (index in 0 until records.length()) {
+            val order = records.optJSONObject(index) ?: continue
             val orderEmail = order.optString("customerEmail", order.optString("customer_email", "")).trim().lowercase(Locale.US)
-            val orderName = order.optString("customer", order.optString("customerName", "")).trim().lowercase(Locale.US)
-            if ((normalizedEmail.isNotBlank() && orderEmail == normalizedEmail) ||
-                (orderEmail.isBlank() && normalizedName.isNotBlank() && orderName == normalizedName)
-            ) {
-                add(
-                    CustomerOrderUpdate(
-                        invoice = order.optString("quoteNumber", order.optString("quote_number", order.optString("invoice", "Order"))),
-                        products = order.optString("products", "Order items"),
-                        amount = order.optInt("amount", order.optInt("totalAmount", 0)),
-                        paymentStatus = order.optString("paymentStatus", order.optString("payment_status", "Payment pending")),
-                        deliveryStatus = order.optString("deliveryStatus", "Pending confirmation"),
-                        courier = order.optString("courier", ""),
-                        trackingNumber = order.optString("trackingNumber", ""),
-                        updatedAt = order.optString("updatedAt", order.optString("createdAt", ""))
-                    )
-                )
+            if (normalizedEmail.isNotBlank() && orderEmail == normalizedEmail) {
+                add(CustomerOrderUpdate(
+                    invoice = order.optString("quoteNumber", order.optString("quote_number", order.optString("invoice", "Order"))),
+                    products = order.optString("products", "Order items"),
+                    amount = order.optInt("amount", order.optInt("totalAmount", 0)),
+                    paymentStatus = order.optString("paymentStatus", order.optString("payment_status", "Payment pending")),
+                    deliveryStatus = order.optString("deliveryStatus", "Pending confirmation"),
+                    courier = order.optString("courier", ""),
+                    trackingNumber = order.optString("trackingNumber", ""),
+                    updatedAt = order.optString("updatedAt", order.optString("createdAt", ""))
+                ))
             }
         }
     }.sortedByDescending { it.updatedAt }
+    val paymentModes = buildList {
+        val modes = state.optJSONObject("settings")?.optJSONArray("paymentModes") ?: JSONArray()
+        for (index in 0 until modes.length()) modes.optString(index).trim().takeIf(String::isNotBlank)?.let(::add)
+    }
+    val customer = buildList {
+        state.optJSONObject("customer")?.let { registeredUserFromJson(it)?.let(::add) }
+    }.firstOrNull()
+    val quotations = buildList {
+        val records = state.optJSONArray("quotations") ?: JSONArray()
+        for (index in 0 until records.length()) {
+            val record = records.optJSONObject(index) ?: continue
+            val customerRecord = record.optJSONObject("customer") ?: JSONObject()
+            val customerEmail = customerRecord.optString("email").trim()
+            val quoteNumber = record.optString("quotation_no").trim()
+            if (quoteNumber.isBlank() || !customerEmail.equals(normalizedEmail, ignoreCase = true)) continue
+            val items = record.optJSONArray("items_snapshot") ?: JSONArray()
+            val summary = buildList {
+                for (itemIndex in 0 until items.length()) {
+                    val item = items.optJSONObject(itemIndex) ?: continue
+                    add("${item.optString("panelModel", "Panel")} x${item.optInt("quantity", 1)}")
+                }
+            }.joinToString(", ")
+            val isUnfinished = isUnfinishedCustomerQuotation(record)
+            add(QuoteHistoryEntry(
+                quoteNumber = quoteNumber,
+                customerEmail = customerEmail,
+                summary = summary,
+                amount = formatPeso(record.optDouble("total", 0.0).toInt()),
+                status = if (isUnfinished) "Unfinished quotation" else "Quotation ready",
+                createdAt = record.optString("created_at"),
+                isUnfinished = isUnfinished,
+                itemsJson = items.toString(),
+                businessJson = record.optJSONObject("business")?.toString().orEmpty(),
+                issuedAt = record.optString("created_at"),
+                subtotal = formatPeso(record.optDouble("subtotal", 0.0).toInt()),
+                vat = formatPeso(record.optDouble("vat", 0.0).toInt())
+            ))
+        }
+    }.sortedByDescending { it.createdAt }
+    CustomerSharedSnapshot(orders, paymentModes, customer, quotations)
 }
 
 private suspend fun loadInventory(context: Context): InventoryUiState = withContext(Dispatchers.IO) {
     try {
-        val state = fetchBackendState(context) ?: throw IllegalStateException("Backend inventory could not be reached.")
+        val state = fetchMobileSync(context) ?: throw IllegalStateException("Backend inventory could not be reached.")
         val inventoryArray = state.optJSONArray("inventory")
         val products = buildList {
             if (inventoryArray != null) {
@@ -4295,6 +5276,8 @@ private suspend fun loadInventory(context: Context): InventoryUiState = withCont
                             size = item.optString("size", "N/A"),
                             material = item.optString("material", "N/A"),
                             price = item.optDouble("price", item.optDouble("pricePerMeter", 0.0)).toInt(),
+                            priceUnit = item.optString("priceUnit").takeIf { it == "meter" || it == "piece" }
+                                ?: if (item.optString("productCode", item.optString("name")).startsWith("LJS-", ignoreCase = true)) "meter" else "piece",
                             quantity = item.optInt("quantity", 0),
                             description = item.optString("description", "Premium panel option for customer requests."),
                             panelType = item.optString("productType", item.optString("categoryName", "")).trim(),
@@ -4338,7 +5321,7 @@ private enum class BottomItems(val tab: Tab, val label: String, val icon: androi
     Home(Tab.Home, "Home", Icons.Outlined.Home),
     Catalog(Tab.Catalog, "Catalog", Icons.Outlined.ShoppingBag),
     Ar(Tab.Ar, "AR", Icons.Outlined.CameraAlt),
-    Customization(Tab.Customization, "Customize", Icons.Outlined.Build),
+    Customization(Tab.Customization, "Design", Icons.Outlined.Build),
     Settings(Tab.Settings, "Settings", Icons.Outlined.PendingActions)
 }
 
@@ -4366,21 +5349,22 @@ private enum class SettingsPage {
 
 @Composable
 private fun StatsRow(requestCount: Int, latestQuoteAmount: String, paymentStatusMessage: String) {
-    val isPaid = paymentStatusMessage.equals("Paid", ignoreCase = true)
-    val isWaitingForSeller = paymentStatusMessage.contains("seller quotation", ignoreCase = true)
+    val normalizedStatus = paymentStatusMessage.trim().lowercase(Locale.ROOT)
+    val statusLabel = when {
+        requestCount == 0 -> "No quotations yet"
+        normalizedStatus in setOf("paid", "completed", "settled") -> "Paid"
+        normalizedStatus.contains("unfinished") -> "Unfinished"
+        normalizedStatus.contains("seller quotation") -> "Awaiting quotation"
+        normalizedStatus.contains("awaiting confirmation") || normalizedStatus.contains("quotation ready") || normalizedStatus.contains("official quotation") -> "Awaiting confirmation"
+        normalizedStatus.contains("partial") -> "Partially paid"
+        normalizedStatus.contains("payment") -> "Payment pending"
+        else -> paymentStatusMessage.ifBlank { "Quotation update" }
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         StatCard(
-            when {
-                isPaid -> "Paid"
-                isWaitingForSeller -> "Quotation request"
-                else -> "Pending Payment"
-            },
-            latestQuoteAmount.ifBlank { "₱0" },
-            when {
-                isPaid -> "Completed"
-                isWaitingForSeller -> "Awaiting seller"
-                else -> "Due"
-            },
+            "Latest quotation",
+            if (requestCount == 0) "â€”" else latestQuoteAmount.ifBlank { "â€”" },
+            statusLabel,
             Modifier.weight(1f)
         )
         StatCard("Quotes", requestCount.toString(), "Saved", Modifier.weight(1f))
@@ -4444,7 +5428,7 @@ private fun HomeScreen(selectedProduct: Product?, onSelectAsQuote: () -> Unit) {
                     Text(selectedProduct.name, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF121826))
                     Text(selectedProduct.description, color = Color(0xFF667085))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        InfoChip("Price", "₱${selectedProduct.price}")
+                        InfoChip(if (selectedProduct.priceUnit == "meter") "Price / m" else "Price / pc", formatPeso(selectedProduct.price))
                         InfoChip("Stock", selectedProduct.quantity.toString())
                         InfoChip("Category", selectedProduct.category)
                     }
@@ -5537,7 +6521,7 @@ private fun HeroBanner(
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 Text("Price", color = Color(0xFFF8F1E8), fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                Text("₱${product.price}", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                                Text(productPriceLabel(product), color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                             }
                         }
                     }
@@ -5555,7 +6539,7 @@ private fun HeroBanner(
                 ) {
                     Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text("Price", color = Color(0xFFF8F1E8), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Text("₱${product.price}", color = Color.White, fontWeight = FontWeight.ExtraBold)
+                        Text(productPriceLabel(product), color = Color.White, fontWeight = FontWeight.ExtraBold)
                     }
                 }
             }
@@ -5670,6 +6654,16 @@ private fun RefinedHeroBanner(
                         )
                     }
                 }
+                heroProduct?.let { product ->
+                    Text(
+                        productPriceLabel(product),
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -5681,7 +6675,7 @@ private fun RefinedHeroBanner(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF77F2C)),
                         modifier = Modifier.weight(1.15f),
-                        contentPadding = PaddingValues(vertical = 9.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp)
                     ) {
                         Text(
                             "Try AR",
@@ -5699,27 +6693,8 @@ private fun RefinedHeroBanner(
                             contentColor = Color(0xFF121826)
                         ),
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(vertical = 9.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp)
                     ) { Text("Browse", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
-                    heroProduct?.let { product ->
-                        Card(
-                            shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF121826)),
-                            modifier = Modifier
-                                .width(68.dp)
-                                .height(58.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 7.dp, vertical = 7.dp),
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text("Price", color = Color(0xFFF8F1E8), fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                Text("₱${product.price}", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -5749,18 +6724,21 @@ private fun FeaturedPanelCarousel(
         return
     }
 
-    LazyRow(
-        state = listState,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(end = 8.dp),
-        flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
-    ) {
-        items(products, key = { it.id }) { product ->
-            Box(modifier = Modifier.width(258.dp)) {
-                FeaturedPanelCard(
-                    product = product,
-                    onClick = { onPreviewProduct(product.id) }
-                )
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val cardWidth = (maxWidth * 0.86f).coerceAtMost(320.dp)
+        LazyRow(
+            state = listState,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(end = 8.dp),
+            flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
+        ) {
+            items(products, key = { it.id }) { product ->
+                Box(modifier = Modifier.width(cardWidth)) {
+                    FeaturedPanelCard(
+                        product = product,
+                        onClick = { onPreviewProduct(product.id) }
+                    )
+                }
             }
         }
     }
@@ -5833,7 +6811,7 @@ private fun FeaturedPanelCard(product: Product, onClick: () -> Unit) {
 
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(product.name, color = Color(0xFF121826), fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-                Text("₱${product.price}", color = Color(0xFFF77F2C), fontWeight = FontWeight.Bold)
+                Text(productPriceLabel(product), color = Color(0xFFF77F2C), fontWeight = FontWeight.Bold)
                 Text("${product.quantity} available", color = Color(0xFF667085), fontSize = 11.sp)
             }
         }
@@ -5845,56 +6823,118 @@ private fun AddressFormScreen(
     modifier: Modifier = Modifier,
     fullName: String,
     mobileNumber: String,
+    addressFullName: String,
+    addressMobileNumber: String,
+    addresses: List<CustomerAddress>,
+    editorOpen: Boolean,
+    editingAddressId: String,
     streetAddress: String,
     cityProvince: String,
     postalCode: String,
     onStreetAddressChange: (String) -> Unit,
     onCityProvinceChange: (String) -> Unit,
     onPostalCodeChange: (String) -> Unit,
+    onAddressFullNameChange: (String) -> Unit,
+    onAddressMobileNumberChange: (String) -> Unit,
+    onAddAddress: () -> Unit,
+    onEditAddress: (CustomerAddress) -> Unit,
+    onSetDefaultAddress: (String) -> Unit,
+    onCancelEdit: () -> Unit,
     onBack: () -> Unit,
-    onCancel: () -> Unit,
-    onSave: () -> Unit
+    onSave: (CustomerAddress) -> Unit
 ) {
-    val canContinue = streetAddress.isNotBlank() && cityProvince.isNotBlank() && postalCode.matches(Regex("\\d{4}"))
-    val hasSavedAddress = streetAddress.isNotBlank() && cityProvince.isNotBlank() && postalCode.isNotBlank()
-    var showAddAddressForm by rememberSaveable { mutableStateOf(false) }
+    val canContinue = addressFullName.isNotBlank() && addressMobileNumber.filter(Char::isDigit).length >= 10 && streetAddress.isNotBlank() && cityProvince.isNotBlank() && postalCode.matches(Regex("\\d{4}"))
+    val editingAddress = addresses.firstOrNull { it.id == editingAddressId }
+    var addressLabelDraft by rememberSaveable(editingAddressId) {
+        mutableStateOf(editingAddress?.label ?: "Address ${addresses.size + 1}")
+    }
     Column(
         modifier = modifier
-            .background(Color(0xFFFFFBF6))
+            .background(Color(0xFFFFF7EB))
+            .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Text("AR Panels", color = Color(0xFF898681), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFFB9B6AE)) }
-            Column { Text("Delivery address", color = Color(0xFF202124), fontSize = 17.sp, fontWeight = FontWeight.Bold); Text("Where to deliver panels", color = Color(0xFF777777), fontSize = 12.sp) }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFF344054)) }
+            Column { Text("Delivery address", color = Color(0xFF202124), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold); Text("Where to deliver your panels", color = Color(0xFF667085), fontSize = 13.sp) }
         }
-        if (hasSavedAddress) {
-            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Color(0xFFE3DFDA)), shape = RoundedCornerShape(14.dp)) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Default", color = Color(0xFF8A4A0A), fontSize = 11.sp, modifier = Modifier.border(1.dp, Color(0xFFF57419), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 3.dp))
-                    Text(fullName, color = Color(0xFFB7B7B7), fontWeight = FontWeight.Bold)
-                    Text(streetAddress, color = Color(0xFF999999))
-                    Text(cityProvince, color = Color(0xFF999999))
-                    Text(mobileNumber, color = Color(0xFF999999))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = { }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)) { Text("Edit") }; OutlinedButton(onClick = { }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)) { Text("Set default") } }
+        if (addresses.isEmpty() && !editorOpen) {
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(22.dp)) {
+                Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Outlined.Home, contentDescription = null, tint = Color(0xFFF57419), modifier = Modifier.size(34.dp))
+                    Text("Add your delivery address", color = Color(0xFF202124), fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Text("Save one or more addresses and choose which one should be used by default.", color = Color(0xFF667085), textAlign = TextAlign.Center)
                 }
             }
         }
-        OutlinedButton(onClick = { showAddAddressForm = true }, modifier = Modifier.fillMaxWidth().height(54.dp), border = BorderStroke(1.dp, Color(0xFFE3DFDA)), shape = RoundedCornerShape(14.dp)) { Text("＋  Add new address", color = Color(0xFFF57419), fontWeight = FontWeight.Bold) }
-        if (showAddAddressForm) {
-            Text("ADD ADDRESS", color = Color(0xFFB0ADA8), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            OutlinedTextField(fullName, { }, modifier = Modifier.fillMaxWidth(), label = { Text("Full name") }, placeholder = { Text("Enter full name") }, readOnly = true, singleLine = true, shape = RoundedCornerShape(10.dp))
-            OutlinedTextField(streetAddress, onStreetAddressChange, modifier = Modifier.fillMaxWidth(), label = { Text("Street address") }, placeholder = { Text("House no., street, barangay") }, singleLine = true, shape = RoundedCornerShape(10.dp))
-            OutlinedTextField(cityProvince, onCityProvinceChange, modifier = Modifier.fillMaxWidth(), label = { Text("City / Municipality") }, placeholder = { Text("e.g. Rosario, Cavite") }, singleLine = true, shape = RoundedCornerShape(10.dp))
-            OutlinedTextField(postalCode, { onPostalCodeChange(it.filter(Char::isDigit).take(4)) }, modifier = Modifier.fillMaxWidth(), label = { Text("ZIP code") }, placeholder = { Text("4 digits") }, singleLine = true, shape = RoundedCornerShape(10.dp))
-            OutlinedTextField(mobileNumber, { }, modifier = Modifier.fillMaxWidth(), label = { Text("Mobile number") }, placeholder = { Text("09XX XXX XXXX") }, readOnly = true, singleLine = true, shape = RoundedCornerShape(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = { onCancel(); showAddAddressForm = false }, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(10.dp)) { Text("Cancel") }
-                Button(onClick = { onSave(); showAddAddressForm = false }, enabled = canContinue, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419))) { Text("Save address", fontWeight = FontWeight.Bold) }
+        if (!editorOpen) {
+            addresses.forEach { address ->
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(22.dp)) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(address.label, color = Color(0xFF202124), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text("${address.fullName.ifBlank { fullName }} Â· ${address.mobileNumber.ifBlank { mobileNumber }}", color = Color(0xFF667085), fontSize = 12.sp)
+                            }
+                            if (address.isDefault) {
+                                Text("DEFAULT", color = Color(0xFF287A43), fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.background(Color(0xFFE8F6EC), RoundedCornerShape(999.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
+                            }
+                        }
+                        Text(address.streetAddress, color = Color(0xFF344054))
+                        Text("${address.cityProvince} ${address.postalCode}".trim(), color = Color(0xFF667085), fontSize = 13.sp)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(onClick = { onEditAddress(address) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(13.dp)) {
+                                Text("Edit", color = Color(0xFF344054), fontWeight = FontWeight.SemiBold)
+                            }
+                            if (!address.isDefault) {
+                                Button(onClick = { onSetDefaultAddress(address.id) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(13.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419))) {
+                                    Text("Set as default", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            OutlinedButton(onClick = onAddAddress, modifier = Modifier.fillMaxWidth().height(54.dp), border = BorderStroke(1.dp, Color(0xFFE3DFDA)), shape = RoundedCornerShape(14.dp)) {
+                Text("+  Add another address", color = Color(0xFF9E4300), fontWeight = FontWeight.Bold)
+            }
+        }
+        if (editorOpen) {
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(22.dp)) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(if (editingAddress == null) "NEW ADDRESS" else "EDIT ADDRESS", color = Color(0xFF9E4300), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    OutlinedTextField(addressLabelDraft, { addressLabelDraft = it.take(32) }, modifier = Modifier.fillMaxWidth(), label = { Text("Address label") }, placeholder = { Text("Home, work, or other") }, singleLine = true, shape = RoundedCornerShape(14.dp))
+                    OutlinedTextField(addressFullName, onAddressFullNameChange, modifier = Modifier.fillMaxWidth(), label = { Text("Full name") }, placeholder = { Text("Enter recipient's full name") }, singleLine = true, shape = RoundedCornerShape(14.dp))
+                    OutlinedTextField(addressMobileNumber, onAddressMobileNumberChange, modifier = Modifier.fillMaxWidth(), label = { Text("Mobile number") }, placeholder = { Text("09XXXXXXXXX") }, singleLine = true, shape = RoundedCornerShape(14.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
+                    OutlinedTextField(streetAddress, onStreetAddressChange, modifier = Modifier.fillMaxWidth(), label = { Text("Street address") }, placeholder = { Text("House no., street, barangay") }, singleLine = true, shape = RoundedCornerShape(14.dp))
+                    OutlinedTextField(cityProvince, onCityProvinceChange, modifier = Modifier.fillMaxWidth(), label = { Text("City / Municipality") }, placeholder = { Text("e.g. Rosario, Cavite") }, singleLine = true, shape = RoundedCornerShape(14.dp))
+                    OutlinedTextField(postalCode, { onPostalCodeChange(it.filter(Char::isDigit).take(4)) }, modifier = Modifier.fillMaxWidth(), label = { Text("ZIP code") }, placeholder = { Text("4 digits") }, singleLine = true, shape = RoundedCornerShape(14.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(onClick = onCancelEdit, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(13.dp)) { Text("Cancel") }
+                        Button(
+                            onClick = {
+                                onSave(
+                                    CustomerAddress(
+                                        id = editingAddress?.id ?: UUID.randomUUID().toString(),
+                                        label = addressLabelDraft.trim().ifBlank { "Address ${addresses.size + 1}" },
+                                        fullName = addressFullName.trim(),
+                                        mobileNumber = addressMobileNumber.trim(),
+                                        streetAddress = streetAddress.trim(),
+                                        cityProvince = cityProvince.trim(),
+                                        postalCode = postalCode.trim(),
+                                        isDefault = editingAddress?.isDefault ?: addresses.isEmpty()
+                                    )
+                                )
+                            },
+                            enabled = canContinue,
+                            modifier = Modifier.weight(1f).height(50.dp),
+                            shape = RoundedCornerShape(13.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419))
+                        ) { Text("Save address", fontWeight = FontWeight.Bold) }
+                    }
+                }
             }
         }
     }
@@ -5934,30 +6974,39 @@ private fun CartScreen(
             }
             cart.forEach { line ->
                 val cartPreview = customizationInventoryPreviewAsset(line.product.name) ?: line.product.imageUrl
+                val lineSize = line.customization?.size?.takeIf { it.isNotBlank() } ?: line.product.size
+                val lineExtras = line.customization?.let { detail ->
+                    detail.addOns.sumOf { CHECKOUT_ADD_ON_PRICES[it] ?: 0 } + checkoutSizeAdjustment(lineSize)
+                } ?: 0
+                val lineTotal = checkoutLineTotal(line.product.price + lineExtras, lineSize, line.quantity, line.product.priceUnit)
                 Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(
                                 checked = line.selected,
                                 onCheckedChange = { onToggleSelection(line.product.id) },
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(40.dp)
                             )
                             if (!cartPreview.isNullOrBlank()) {
                                 AsyncImage(
                                     model = cartPreview,
                                     contentDescription = line.product.name,
-                                    modifier = Modifier.size(72.dp).clip(RoundedCornerShape(14.dp)),
+                                    modifier = Modifier.size(64.dp).clip(RoundedCornerShape(14.dp)),
                                     contentScale = ContentScale.Fit
                                 )
                             } else {
                                 Box(
-                                    modifier = Modifier.size(72.dp).background(Color(0xFFF4EFE7), RoundedCornerShape(14.dp)),
+                                    modifier = Modifier.size(64.dp).background(Color(0xFFF4EFE7), RoundedCornerShape(14.dp)),
                                     contentAlignment = Alignment.Center
                                 ) { Text("Panel", color = Color(0xFF8D4E15), fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                             }
-                            Column(Modifier.weight(1f)) {
-                                Text(line.product.name, fontWeight = FontWeight.Bold, color = Color(0xFF121826))
-                                Text(formatPeso(line.product.price), color = Color(0xFFF77F2C), fontWeight = FontWeight.Bold)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(line.product.name, fontWeight = FontWeight.Bold, color = Color(0xFF121826), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(productPriceLabel(line.product), color = Color(0xFFF77F2C), fontWeight = FontWeight.Bold)
+                            }
+                            }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -5970,25 +7019,24 @@ private fun CartScreen(
                                                 onQuantityChange(line.product.id, line.quantity - 1)
                                             }
                                         },
-                                        modifier = Modifier.size(width = 34.dp, height = 30.dp),
+                                        modifier = Modifier.size(width = 40.dp, height = 40.dp),
                                         contentPadding = PaddingValues(0.dp),
                                         shape = CircleShape
-                                    ) { Text("−", fontSize = 14.sp) }
+                                    ) { Text("-", fontSize = 14.sp) }
                                     Text("${line.quantity}", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     OutlinedButton(
                                         onClick = { onQuantityChange(line.product.id, line.quantity + 1) },
                                         enabled = line.quantity < line.product.quantity,
-                                        modifier = Modifier.size(width = 34.dp, height = 30.dp),
+                                        modifier = Modifier.size(width = 40.dp, height = 40.dp),
                                         contentPadding = PaddingValues(0.dp),
                                         shape = CircleShape
                                     ) { Text("+", fontSize = 14.sp) }
                                 }
-                            }
-                            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Text(formatPeso(line.product.price * line.quantity), fontWeight = FontWeight.Bold, color = Color(0xFF121826))
+                            Spacer(Modifier.weight(1f))
+                            Text(formatPeso(lineTotal), fontWeight = FontWeight.Bold, color = Color(0xFF121826), maxLines = 1)
                                 IconButton(
                                     onClick = { itemPendingRemoval = line },
-                                    modifier = Modifier.size(32.dp).background(Color(0xFFFFECEC), RoundedCornerShape(9.dp))
+                                    modifier = Modifier.size(40.dp).background(Color(0xFFFFECEC), RoundedCornerShape(9.dp))
                                 ) {
                                     Icon(
                                         Icons.Outlined.DeleteOutline,
@@ -6233,25 +7281,12 @@ private fun CatalogScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                "Catalog",
-                modifier = Modifier.weight(1f, fill = false),
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 26.sp,
-                color = Color(0xFF121826),
-                letterSpacing = (-0.4).sp
-            )
-
-            AnimatedVisibility(
-                visible = isSearchOpen,
-                enter = expandHorizontally(expandFrom = Alignment.End) + fadeIn(),
-                exit = shrinkHorizontally(shrinkTowards = Alignment.End) + fadeOut()
-            ) {
+            if (isSearchOpen) {
                 OutlinedTextField(
                     value = search,
                     onValueChange = onSearchChange,
                     modifier = Modifier
-                        .width(174.dp)
+                        .weight(1f)
                         .focusRequester(searchFocusRequester),
                     placeholder = { Text("Search", maxLines = 1) },
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
@@ -6264,6 +7299,15 @@ private fun CatalogScreen(
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp)
+                )
+            } else {
+                Text(
+                    "Catalog",
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 26.sp,
+                    color = Color(0xFF121826),
+                    letterSpacing = (-0.4).sp
                 )
             }
 
@@ -6504,7 +7548,7 @@ private fun CatalogScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("✓", color = Color.White, fontWeight = FontWeight.ExtraBold)
+                        Icon(Icons.Outlined.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                         Text(
                             cartToastMessage.orEmpty(),
                             color = Color.White,
@@ -6550,7 +7594,7 @@ private fun CatalogCard(product: Product, selected: Boolean, onClick: () -> Unit
                         .height(150.dp)
                 )
             } else if (product.modelUrl != null) {
-                PanelSceneViewer(
+                PanelModelPreview(
                     modelUrl = product.modelUrl,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -6558,7 +7602,7 @@ private fun CatalogCard(product: Product, selected: Boolean, onClick: () -> Unit
                         .clip(RoundedCornerShape(20.dp))
                 )
                 Text(
-                    "Interactive 3D preview · drag to rotate, pinch to zoom",
+                    "Interactive 3D preview Â· drag to rotate, pinch to zoom",
                     color = Color(0xFF667085),
                     fontSize = 10.sp
                 )
@@ -6692,7 +7736,7 @@ private fun CatalogPreview(
             contentAlignment = Alignment.Center
         ) {
             if (mode == "3D" && product.modelUrl != null) {
-                PanelSceneViewer(
+                PanelModelPreview(
                     modelUrl = product.modelUrl,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -6711,636 +7755,29 @@ private fun CatalogPreview(
             }
         }
         Text(
-            if (mode == "3D") "Drag to rotate · pinch to zoom" else "2D product image",
+            if (mode == "3D") "Drag to rotate Â· pinch to zoom" else "2D product image",
             color = Color(0xFF667085),
             fontSize = 10.sp
         )
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 @Composable
-private fun PanelSceneViewer(
+private fun PanelModelPreview(
     modelUrl: String,
     modifier: Modifier = Modifier,
     tintHex: String? = null,
     textureAsset: String? = null,
     pattern: String = "Horizontal",
     finish: String = "Matte",
-    size: String = "2400 × 200mm",
+    size: String = "2400 ? 200mm",
     showModified: Boolean = true,
     transparentBackground: Boolean = false,
     showControls: Boolean = true,
     allowRotation: Boolean = true
 ) {
-    val context = LocalContext.current
-    // SceneView 3.3 uses the app's assets for model loading. The matching
-    // GLBs are copied from the server's 3dPanels folder into assets/models.
-    val assetPath = remember(modelUrl) {
-        "models/" + modelUrl.substringAfter("/3dPanels/")
-    }
-    // Some exported panel groups use a different Blender forward axis. Turn
-    // those groups to face the front camera instead of displaying edge-on.
-    val modelBaseRotationY = remember(assetPath) {
-        when {
-            assetPath.contains("Wall Board", ignoreCase = true) -> 90.0f
-            else -> 0.0f
-        }
-    }
-    val isUvBoard = assetPath.contains("UV Board", ignoreCase = true)
-    val sizeScale = when {
-        size.contains("150", ignoreCase = true) -> 1.12f
-        size.contains("300", ignoreCase = true) -> 0.88f
-        else -> 1.0f
-    }
-    val finishRoughness = when (finish.lowercase()) {
-        "gloss" -> 0.18f
-        "satin" -> 0.42f
-        else -> 0.78f
-    }
-    var modelScale by remember(modelUrl) { mutableStateOf(1.35f) }
-    var modelRotation by remember(modelUrl) { mutableStateOf(0.0f) }
-    val cameraManipulator = rememberCameraManipulator(
-        // Start in front of the panel. The previous x-offset placed the
-        // camera beside a flat GLB, making it appear as a thin edge.
-        // Users can still orbit/zoom from this front-facing starting view.
-        orbitHomePosition = if (isUvBoard) {
-            // UV Board files were exported with their face oriented toward
-            // the X side, so this is the customer-facing view for that group.
-            Position(x = 2.6f, y = 0.35f, z = 3.2f)
-        } else {
-            Position(x = 0.0f, y = 0.35f, z = 4.0f)
-        },
-        targetPosition = Position()
-    )
-
-    Box(
-        modifier = modifier
-            .background(
-                if (transparentBackground) Color.Transparent else Color(0xFF100D0B),
-                RoundedCornerShape(20.dp)
-            )
-            .clip(RoundedCornerShape(20.dp))
-    ) {
-        Scene(
-            modifier = Modifier.fillMaxSize(),
-            surfaceType = SurfaceType.TextureSurface,
-            isOpaque = false,
-            cameraManipulator = cameraManipulator
-        ) {
-            val appearanceTexture = textureAsset
-                ?.takeIf { it.isNotBlank() }
-                ?.let { asset ->
-                    remember(engine, asset) {
-                        runCatching {
-                            ImageTexture.Builder()
-                                .bitmap(context.assets, asset)
-                                .build(engine)
-                        }.getOrNull()
-                    }
-                }
-            DisposableEffect(appearanceTexture, engine) {
-                onDispose {
-                    appearanceTexture?.let { texture ->
-                        runCatching { engine.destroyTexture(texture) }
-                    }
-                }
-            }
-            Node(
-                scale = Scale(modelScale * sizeScale),
-                // Lower the model slightly so its visible bounds sit in the
-                // center of the black preview rather than near the top.
-                position = Position(y = -0.22f),
-                rotation = Rotation(y = modelBaseRotationY + modelRotation)
-            ) {
-                rememberModelInstance(modelLoader, assetFileLocation = assetPath)?.let { instance ->
-                    val modelNode = ModelNode(
-                        modelInstance = instance,
-                        scaleToUnits = 1.0f,
-                        centerOrigin = Position(),
-                        autoAnimate = false
-                    )
-                    tintHex?.let { hex ->
-                        val tint: Int? = runCatching<Int> {
-                            android.graphics.Color.parseColor("#${hex.removePrefix("#")}")
-                        }.getOrNull()
-                        if (tint != null || appearanceTexture != null) {
-                            instance.renderableInstances.forEach { renderableInstance ->
-                                val primitiveCount = instance.renderableManager.getPrimitiveCount(renderableInstance)
-                                repeat(primitiveCount) { primitiveIndex ->
-                                    instance.renderableManager
-                                        .getMaterialInstanceAt(renderableInstance, primitiveIndex)
-                                        .apply {
-                                            appearanceTexture?.let { texture -> setBaseColorMap(texture) }
-                                            tint?.let { setBaseColorFactor(colorOf(it)) }
-                                            setRoughnessFactor(finishRoughness)
-                                            setMetallicFactor(if (finish.equals("Gloss", ignoreCase = true)) 0.12f else 0.0f)
-                                        }
-                                }
-                            }
-                        }
-                    }
-                    modelNode
-                }
-            }
-        }
-
-        // Give the preview one clear gesture: horizontal drag rotates the
-        // model. Vertical movement is deliberately left unconsumed so the
-        // parent customization sheet can scroll instead of moving both at
-        // once. This overlay also prevents SceneView's own orbit handler from
-        // competing with the screen scroll gesture.
-        if (allowRotation) Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(modelUrl) {
-                    detectHorizontalDragGestures { change, dragAmount ->
-                        change.consume()
-                        modelRotation = (modelRotation + dragAmount * 0.65f).mod(360.0f)
-                    }
-                }
-        )
-
-        if (showControls) Row(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .background(Color(0xFFF77F2C), CircleShape)
-            )
-            Spacer(Modifier.width(7.dp))
-            Text(
-                "3D PREVIEW",
-                color = Color(0xFFD9D0CA),
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.2.sp
-            )
-        }
-        if (showControls) Text(
-            "3D PREVIEW",
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 12.dp),
-            color = Color(0xFF6D625B),
-            fontSize = 8.sp,
-            letterSpacing = 0.8.sp
-        )
-        if (showControls) Column(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(10.dp)
-                .background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(12.dp)),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            TextButton(
-                onClick = { modelScale = (modelScale * 1.2f).coerceAtMost(4.0f) },
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(42.dp)
-            ) { Text("+", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFF121826)) }
-            TextButton(
-                onClick = { modelScale = (modelScale / 1.2f).coerceAtLeast(0.35f) },
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(42.dp)
-            ) { Text("−", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFF121826)) }
-            TextButton(
-                onClick = { modelRotation = (modelRotation + 45.0f) % 360.0f },
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(42.dp)
-            ) { Text("↻", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF77F2C)) }
-        }
-    }
-}
-
-/** Camera-only AR fallback for phones that are not ARCore-certified. */
-@Composable
-private fun CameraOverlayPanelPreview(
-    modelUrl: String,
-    cameraController: LifecycleCameraController,
-    imageUrl: String? = null,
-    modifier: Modifier = Modifier,
-    tintHex: String? = null,
-    textureAsset: String? = null,
-    finish: String = "Matte",
-    size: String = "2400 × 200mm",
-    dropRequest: ArDropRequest? = null,
-    onDropHandled: () -> Unit = {},
-    onStatusChanged: (String) -> Unit = {}
-) {
-    val placedPanels = remember(modelUrl) { mutableStateListOf<CameraPlacedPanel>() }
-    var selectedPanelId by remember(modelUrl) { mutableStateOf<Int?>(null) }
-    var readyPanelScale by remember(modelUrl) { mutableStateOf(1f) }
-    var nextPanelId by remember(modelUrl) { mutableIntStateOf(1) }
-    var draggingPanelId by remember { mutableStateOf<Int?>(null) }
-    var previewSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
-    var previewOriginInRoot by remember { mutableStateOf(Offset.Zero) }
-    var wallWidthInput by rememberSaveable { mutableStateOf("3.0") }
-    var wallHeightInput by rememberSaveable { mutableStateOf("2.4") }
-    var draftWallWidth by rememberSaveable { mutableStateOf("3.0") }
-    var draftWallHeight by rememberSaveable { mutableStateOf("2.4") }
-    var showWallDimensions by rememberSaveable { mutableStateOf(false) }
-    val wallWidthMm = wallWidthInput.toFloatOrNull()?.takeIf { it in 0.5f..30f }?.times(1000f) ?: 3000f
-    val wallHeightMm = wallHeightInput.toFloatOrNull()?.takeIf { it in 0.5f..12f }?.times(1000f) ?: 2400f
-    val panelDimensions = panelDimensionsMm(size) ?: (2400f to 200f)
-    val previewPixelsPerMm = if (previewSize.width > 0 && previewSize.height > 0) {
-        minOf(previewSize.width / wallWidthMm, previewSize.height / wallHeightMm)
-    } else 0f
-    val panelWidthPx = if (previewPixelsPerMm > 0f) {
-        (panelDimensions.second * previewPixelsPerMm).coerceIn(48f, previewSize.width * 0.9f)
-    } else 90f
-    val panelHeightPx = if (previewPixelsPerMm > 0f) {
-        (panelDimensions.first * previewPixelsPerMm).coerceIn(96f, previewSize.height * 0.86f)
-    } else 280f
-    val density = LocalDensity.current
-
-    fun clampedPanelCenter(point: Offset, scale: Float = 1f): Offset {
-        val halfWidth = panelWidthPx * scale / 2f
-        val halfHeight = panelHeightPx * scale / 2f
-        return Offset(
-            (point.x - previewSize.width / 2f).coerceIn(
-                -previewSize.width / 2f + halfWidth,
-                previewSize.width / 2f - halfWidth
-            ),
-            (point.y - previewSize.height / 2f).coerceIn(
-                -previewSize.height / 2f + halfHeight,
-                previewSize.height / 2f - halfHeight
-            )
-        )
-    }
-
-    fun addPanelAt(point: Offset, scale: Float = readyPanelScale): Int {
-        val id = nextPanelId++
-        val safeScale = scale.coerceIn(0.25f, 4f)
-        placedPanels += CameraPlacedPanel(id, clampedPanelCenter(point, safeScale), safeScale)
-        selectedPanelId = id
-        return id
-    }
-
-    LaunchedEffect(dropRequest?.token, previewOriginInRoot) {
-        val request = dropRequest ?: return@LaunchedEffect
-        if (previewSize == androidx.compose.ui.unit.IntSize.Zero) return@LaunchedEffect
-        val localPoint = request.rootPoint - previewOriginInRoot
-        addPanelAt(localPoint)
-        onStatusChanged("Panel placed. Select it and use + or − to resize.")
-        onDropHandled()
-    }
-
-    Box(
-        modifier = modifier
-            .background(Color.Black)
-            .onGloballyPositioned {
-                previewSize = it.size
-                previewOriginInRoot = it.positionInRoot()
-            }
-    ) {
-        CameraPreview(cameraController = cameraController, modifier = Modifier.fillMaxSize())
-        placedPanels.forEach { panel ->
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(
-                        width = with(density) { (panelWidthPx * panel.scale).toDp() },
-                        height = with(density) { (panelHeightPx * panel.scale).toDp() }
-                    )
-                    .graphicsLayer {
-                        translationX = panel.center.x
-                        translationY = panel.center.y
-                    }
-                    .border(
-                        width = if (panel.id == selectedPanelId) 2.dp else 0.dp,
-                        color = Color.White,
-                        shape = RoundedCornerShape(2.dp)
-                    )
-            ) {
-                imageUrl?.let { previewUrl ->
-                    AsyncImage(
-                        model = previewUrl,
-                        contentDescription = "Placed panel overlay",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.FillBounds,
-                        alpha = 0.88f
-                    )
-                }
-            }
-        }
-        // Tapping a clear area places the ready panel; dragging an existing
-        // panel moves it, and dragging on a clear area places while dragging.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(modelUrl, previewSize, panelWidthPx, panelHeightPx) {
-                    detectDragGestures(
-                        onDragStart = { start ->
-                            val existing = placedPanels.lastOrNull { panel ->
-                                kotlin.math.abs(start.x - (previewSize.width / 2f + panel.center.x)) <= panelWidthPx * panel.scale / 2f &&
-                                    kotlin.math.abs(start.y - (previewSize.height / 2f + panel.center.y)) <= panelHeightPx * panel.scale / 2f
-                            }
-                            draggingPanelId = existing?.id ?: addPanelAt(start)
-                            selectedPanelId = draggingPanelId
-                        },
-                        onDrag = { change, amount ->
-                            change.consume()
-                            val index = placedPanels.indexOfFirst { it.id == draggingPanelId }
-                            if (index >= 0) {
-                                placedPanels[index] = placedPanels[index].copy(
-                                    center = clampedPanelCenter(change.position, placedPanels[index].scale)
-                                )
-                            }
-                        },
-                        onDragEnd = {
-                            draggingPanelId = null
-                            onStatusChanged("Panel positioned. Select it and use + or − to resize.")
-                        },
-                        onDragCancel = { draggingPanelId = null }
-                    )
-                }
-                .pointerInput(modelUrl, previewSize, panelWidthPx, panelHeightPx) {
-                    detectTapGestures(
-                        onTap = { tapPosition ->
-                            val existing = placedPanels.lastOrNull { panel ->
-                                kotlin.math.abs(tapPosition.x - (previewSize.width / 2f + panel.center.x)) <= panelWidthPx * panel.scale / 2f &&
-                                    kotlin.math.abs(tapPosition.y - (previewSize.height / 2f + panel.center.y)) <= panelHeightPx * panel.scale / 2f
-                            }
-                            if (existing != null) {
-                                selectedPanelId = existing.id
-                                onStatusChanged("Panel selected. Use + or − to resize it, or drag to move it.")
-                            } else if (previewSize != androidx.compose.ui.unit.IntSize.Zero) {
-                                addPanelAt(tapPosition)
-                                onStatusChanged("Panel ${placedPanels.size} placed. Tap another clear area to add one.")
-                            }
-                        }
-                    )
-                }
-        )
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 76.dp, end = 12.dp)
-                .background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(12.dp)),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            TextButton(
-                onClick = {
-                    val index = placedPanels.indexOfFirst { it.id == selectedPanelId }
-                    if (index >= 0) placedPanels[index] = placedPanels[index].copy(scale = (placedPanels[index].scale * 1.15f).coerceAtMost(4f))
-                    else readyPanelScale = (readyPanelScale * 1.15f).coerceAtMost(4f)
-                },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-            ) { Text("+", fontSize = 16.sp, color = Color(0xFF121826)) }
-            TextButton(
-                onClick = {
-                    val index = placedPanels.indexOfFirst { it.id == selectedPanelId }
-                    if (index >= 0) placedPanels[index] = placedPanels[index].copy(scale = (placedPanels[index].scale / 1.15f).coerceAtLeast(0.25f))
-                    else readyPanelScale = (readyPanelScale / 1.15f).coerceAtLeast(0.25f)
-                },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-            ) { Text("−", fontSize = 16.sp, color = Color(0xFF121826)) }
-            TextButton(
-                onClick = {
-                    draftWallWidth = wallWidthInput
-                    draftWallHeight = wallHeightInput
-                    showWallDimensions = true
-                },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-            ) { Text("Wall size", fontSize = 11.sp, color = Color(0xFF121826)) }
-            if (selectedPanelId != null) {
-                TextButton(
-                    onClick = {
-                        placedPanels.removeAll { it.id == selectedPanelId }
-                        selectedPanelId = null
-                    },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                ) { Text("Delete", fontSize = 10.sp, color = Color(0xFFB42318)) }
-            }
-            TextButton(
-                onClick = {
-                    placedPanels.clear()
-                    selectedPanelId = null
-                },
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(54.dp)
-            ) { Text("Reset", fontSize = 11.sp, color = Color(0xFF121826)) }
-        }
-        Card(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 18.dp),
-            shape = RoundedCornerShape(999.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.65f))
-        ) {
-            Text(
-                "${placedPanels.size} placed · drag to move · + / − resizes",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                color = Color.White,
-                fontSize = 12.sp
-            )
-        }
-        if (showWallDimensions) {
-            AlertDialog(
-                onDismissRequest = { showWallDimensions = false },
-                title = { Text("Measure the wall") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            "Enter the real wall dimensions to scale this panel preview.",
-                            color = Color(0xFF667085)
-                        )
-                        OutlinedTextField(
-                            value = draftWallWidth,
-                            onValueChange = { value -> draftWallWidth = value.filter { it.isDigit() || it == '.' }.take(5) },
-                            label = { Text("Wall width (m)") },
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = draftWallHeight,
-                            onValueChange = { value -> draftWallHeight = value.filter { it.isDigit() || it == '.' }.take(5) },
-                            label = { Text("Wall height (m)") },
-                            singleLine = true
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val width = draftWallWidth.toFloatOrNull()
-                        val height = draftWallHeight.toFloatOrNull()
-                        if (width != null && width in 0.5f..30f && height != null && height in 0.5f..12f) {
-                            wallWidthInput = width.toString()
-                            wallHeightInput = height.toString()
-                            onStatusChanged("Panel preview scaled for a ${width} m × ${height} m wall.")
-                            showWallDimensions = false
-                        }
-                    }) { Text("Apply") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showWallDimensions = false }) { Text("Cancel") }
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun PanelModelViewer(
-    modelUrl: String,
-    modifier: Modifier = Modifier,
-    tintHex: String? = null
-) {
-    // Keep the server URL as the document base and encode the filename for
-    // WebView. GLB paths contain spaces and parentheses in several folders.
-    val encodedModelUrl = modelUrl
-        .replace("%", "%25")
-        .replace(" ", "%20")
-        .replace("(", "%28")
-        .replace(")", "%29")
-    // Use a normal HTTP document for the viewer. Android WebView can reject
-    // module scripts/WebGL when the document is loaded with loadData().
-    val viewerBaseUrl = modelUrl.substringBefore("/3dPanels")
-        .ifBlank { modelUrl.substringBeforeLast("/") }
-        .trimEnd('/')
-    val viewerPageUrl = "$viewerBaseUrl/model-viewer?model=" +
-        java.net.URLEncoder.encode(modelUrl, "UTF-8")
-    val html = remember(modelUrl, tintHex) {
-        val safeTint = tintHex?.trim()?.removePrefix("#")?.takeIf { it.matches(Regex("[0-9a-fA-F]{6}")) }
-        val tintScript = safeTint?.let {
-            """
-            const tint = "#$it";
-            function applyTint() {
-              const value = tint.substring(1);
-              const color = [0, 2, 4].map(index => parseInt(value.substring(index, index + 2), 16) / 255);
-              if (viewer.model && viewer.model.materials) {
-                viewer.model.materials.forEach(material => {
-                  material.pbrMetallicRoughness.setBaseColorFactor([...color, 1]);
-                });
-              }
-            }
-            viewer.addEventListener("load", applyTint);
-            """.trimIndent()
-        } ?: ""
-        """
-        <!doctype html>
-        <html><head><meta name="viewport" content="width=device-width, initial-scale=1" />
-        <style>
-          html,body { margin:0; width:100%; height:100%; overflow:hidden; background:#F4EFE7; }
-          canvas { width:100%; height:100%; display:block; touch-action:none; }
-        </style></head>
-        <body><canvas id="panel"></canvas>
-        <script>
-          const canvas = document.getElementById("panel");
-          const ctx = canvas.getContext("2d");
-          let angle = -0.18, zoom = 1, drag = false, lastX = 0, lastY = 0;
-          function resize() { canvas.width = innerWidth * devicePixelRatio; canvas.height = innerHeight * devicePixelRatio; draw(); }
-          function draw() {
-            const w = canvas.width, h = canvas.height, d = devicePixelRatio;
-            ctx.clearRect(0, 0, w, h); ctx.save(); ctx.scale(d, d);
-            const cw = innerWidth, ch = innerHeight, pw = Math.min(cw * .72, 270) * zoom;
-            const ph = pw * .32, x = cw / 2, y = ch / 2 + 4;
-            const skew = Math.sin(angle) * pw * .16, depth = Math.max(5, pw * .035);
-            const front = [[x-pw/2+skew,y-ph/2],[x+pw/2+skew,y-ph/2],[x+pw/2-skew,y+ph/2],[x-pw/2-skew,y+ph/2]];
-            ctx.fillStyle = "#7A4A2A";
-            ctx.beginPath(); ctx.moveTo(front[0][0],front[0][1]); front.slice(1).forEach(p=>ctx.lineTo(p[0],p[1])); ctx.closePath(); ctx.fill();
-            ctx.fillStyle = "#9A6A3F";
-            ctx.beginPath(); ctx.moveTo(front[0][0],front[0][1]); ctx.lineTo(front[1][0],front[1][1]); ctx.lineTo(front[1][0]-depth,front[1][1]-depth); ctx.lineTo(front[0][0]-depth,front[0][1]-depth); ctx.closePath(); ctx.fill();
-            ctx.fillStyle = "#633919";
-            ctx.beginPath(); ctx.moveTo(front[1][0],front[1][1]); ctx.lineTo(front[2][0],front[2][1]); ctx.lineTo(front[2][0]-depth,front[2][1]-depth); ctx.lineTo(front[1][0]-depth,front[1][1]-depth); ctx.closePath(); ctx.fill();
-            ctx.strokeStyle = "rgba(35,20,12,.5)"; ctx.lineWidth = Math.max(1, 1.3*d);
-            for (let i=1;i<8;i++) { const t=i/8, tx=front[0][0]*(1-t)+front[1][0]*t, ty=front[0][1]*(1-t)+front[1][1]*t; const bx=front[3][0]*(1-t)+front[2][0]*t, by=front[3][1]*(1-t)+front[2][1]*t; ctx.beginPath(); ctx.moveTo(tx,ty); ctx.lineTo(bx,by); ctx.stroke(); }
-            ctx.restore();
-          }
-          addEventListener("resize", resize);
-          canvas.addEventListener("pointerdown", e => { drag=true; lastX=e.clientX; lastY=e.clientY; canvas.setPointerCapture(e.pointerId); });
-          canvas.addEventListener("pointermove", e => { if(!drag)return; angle += (e.clientX-lastX)*.008; zoom=Math.max(.65,Math.min(1.5,zoom+(lastY-e.clientY)*.003)); lastX=e.clientX; lastY=e.clientY; draw(); });
-          canvas.addEventListener("pointerup", () => drag=false);
-          canvas.addEventListener("wheel", e => { e.preventDefault(); zoom=Math.max(.65,Math.min(1.5,zoom-e.deltaY*.001)); draw(); }, {passive:false});
-          resize();
-        </script></body></html>
-        """.trimIndent()
-    }
-    Box(modifier = modifier.clip(RoundedCornerShape(20.dp))) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { context ->
-                WebView(context).apply {
-                    setBackgroundColor(android.graphics.Color.rgb(244, 239, 231))
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.allowFileAccess = false
-                    settings.allowContentAccess = false
-                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                    settings.loadWithOverviewMode = true
-                    settings.useWideViewPort = true
-                    webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean = false
-                        override fun onReceivedError(view: WebView, request: android.webkit.WebResourceRequest, error: android.webkit.WebResourceError) {
-                            Log.e("Aiyige3D", "WebView error ${error.errorCode}: ${error.description} url=${request.url}")
-                        }
-                    }
-                    webChromeClient = object : android.webkit.WebChromeClient() {
-                        override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
-                            Log.e("Aiyige3D", "JS ${message.messageLevel()}: ${message.message()} @${message.sourceId()}:${message.lineNumber()}")
-                            return true
-                        }
-                    }
-                    tag = modelUrl
-                    Log.d("Aiyige3D", "Loading viewer $viewerPageUrl model=$modelUrl")
-                    loadUrl(viewerPageUrl)
-                }
-            },
-            update = { webView ->
-                if (webView.tag != modelUrl) {
-                    webView.tag = modelUrl
-                    webView.loadUrl(viewerPageUrl)
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun Panel3DFallback(tintHex: String?, modifier: Modifier = Modifier) {
-    val panelColor = when (tintHex?.removePrefix("#")?.uppercase()) {
-        "7A3E25" -> Color(0xFF7A3E25)
-        "737879" -> Color(0xFF737879)
-        "D8D4C8" -> Color(0xFFD8D4C8)
-        "242323" -> Color(0xFF242323)
-        else -> Color(0xFF9A6A3F)
-    }
-    Box(modifier = modifier.background(Brush.linearGradient(listOf(Color(0xFFF4EFE7), Color(0xFFE7DED2))))) {
-        Canvas(Modifier.fillMaxSize()) {
-            val left = size.width * .13f
-            val right = size.width * .88f
-            val top = size.height * .19f
-            val bottom = size.height * .82f
-            val depth = size.width * .035f
-            val topFace = androidx.compose.ui.graphics.Path().apply {
-                moveTo(left, top)
-                lineTo(right, top)
-                lineTo(right - depth, top - depth)
-                lineTo(left - depth, top - depth)
-                close()
-            }
-            val sideFace = androidx.compose.ui.graphics.Path().apply {
-                moveTo(right, top)
-                lineTo(right, bottom)
-                lineTo(right - depth, bottom - depth)
-                lineTo(right - depth, top - depth)
-                close()
-            }
-            drawPath(topFace, Color(0xFFB27A4A))
-            drawPath(sideFace, Color(0xFF633919))
-            drawRoundRect(panelColor, topLeft = Offset(left, top), size = androidx.compose.ui.geometry.Size(right - left, bottom - top), cornerRadius = androidx.compose.ui.geometry.CornerRadius(18f, 18f))
-            for (index in 0..7) {
-                val x = left + (right - left) * (index + 0.5f) / 8f
-                drawLine(Color.Black.copy(alpha = .28f), Offset(x, top + 8f), Offset(x - size.width * .04f, bottom - 8f), strokeWidth = 5f)
-                drawLine(Color.White.copy(alpha = .17f), Offset(x + 5f, top + 8f), Offset(x - size.width * .04f + 5f, bottom - 8f), strokeWidth = 2f)
-            }
-            drawLine(Color.White.copy(alpha = .35f), Offset(left + 8f, top + 12f), Offset(right - 8f, top + 12f), strokeWidth = 3f)
-            drawLine(Color.Black.copy(alpha = .35f), Offset(left + 8f, bottom - 10f), Offset(right - 8f, bottom - 10f), strokeWidth = 4f)
-        }
-        Text("3D PREVIEW", color = Color.White.copy(alpha = .85f), fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp))
-    }
+    PanelModelViewer(modelUrl = modelUrl, modifier = modifier, allowAr = false)
 }
 
 @Composable
@@ -7354,10 +7791,7 @@ private fun SelectedPanelSummaryCard(
         colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
-            Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Panel Details", color = Color(0xFFF77F2C), fontWeight = FontWeight.Bold, fontSize = 14.sp)
             Text(product.name, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF121826))
             Text(product.description, color = Color(0xFF667085), fontSize = 14.sp, lineHeight = 21.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -7373,355 +7807,9 @@ private fun SelectedPanelSummaryCard(
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF77F2C)),
                     modifier = Modifier.weight(1f)
                 ) { Text("Add to cart", fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
-                OutlinedButton(onClick = onProceedToAr, modifier = Modifier.weight(1f)) { Text("Try in AR", fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun QuantityStepper(
-    quantity: Int,
-    onQuantityChange: (Int) -> Unit
-) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        OutlinedButton(
-            onClick = { onQuantityChange(maxOf(1, quantity - 1)) }
-        ) {
-            Text("-")
-        }
-        Card(
-            modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF))
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("Panels needed", color = Color(0xFF667085), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                Text(quantity.toString(), color = Color(0xFF121826), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
-            }
-        }
-        OutlinedButton(
-            onClick = { onQuantityChange(quantity + 1) }
-        ) {
-            Text("+")
-        }
-    }
-}
-
-@Composable
-private fun SummaryLine(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(label, color = Color(0xFF667085), fontSize = 12.sp)
-        Text(value, color = Color(0xFF121826), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-    }
-}
-
-@Composable
-private fun ArScreen() {
-    val context = LocalContext.current
-    var hasCameraPermission by rememberSaveable {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        )
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        hasCameraPermission = granted
-    }
-
-    LaunchedEffect(Unit) {
-        if (!hasCameraPermission) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-    }
-
-    Card(shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF))) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("AR Camera", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
-            Text(
-                "Camera is ready. AR coming soon.",
-                color = Color(0xFF667085),
-                lineHeight = 22.sp
-            )
-
-            Card(
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF121826))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(320.dp)
-                ) {
-                    if (hasCameraPermission) {
-                        CameraPreview(
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            Color.Transparent,
-                                            Color(0xAA121826)
-                                        )
-                                    )
-                                )
-                        )
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                "AR coming soon",
-                                color = Color.White,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 20.sp
-                            )
-                            Text(
-                                "Preview is on for scanning.",
-                                color = Color(0xFFFFD29C),
-                                lineHeight = 20.sp
-                            )
-                        }
-                    } else {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(18.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text("Camera permission needed", color = Color.White, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(8.dp))
-                            Button(
-                                onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF77F2C))
-                            ) {
-                                Text("Enable Camera")
-                            }
-                        }
-                    }
+                OutlinedButton(onClick = onProceedToAr, modifier = Modifier.weight(1f)) {
+                    Text("Try in AR", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
-            }
-        }
-    }
-}
-
-/** Markerless AR placement for the currently selected panel. */
-@Composable
-private fun ArPanelPreview(
-    modelUrl: String,
-    modifier: Modifier = Modifier,
-    tintHex: String? = null,
-    finish: String = "Matte",
-    textureAsset: String? = null,
-    size: String = "2400 × 200mm",
-    dropRequest: ArDropRequest? = null,
-    onDropHandled: () -> Unit = {},
-    onPanelPlaced: () -> Unit = {},
-    onStatusChanged: (String) -> Unit,
-    onSessionFailed: (Exception) -> Unit
-) {
-    val context = LocalContext.current
-    // Keep placements independent from the currently selected carousel item.
-    // Selecting another panel must not remove or replace panels already placed.
-    val placedPanels = remember { mutableStateListOf<PlacedArPanel>() }
-    val latestFrame = remember { java.util.concurrent.atomic.AtomicReference<com.google.ar.core.Frame?>(null) }
-    val lastTrackingMessage = remember { java.util.concurrent.atomic.AtomicReference<String?>(null) }
-    var sceneOriginInRoot by remember { mutableStateOf(Offset.Zero) }
-    var assetPath by remember(modelUrl) {
-        mutableStateOf(
-            if (modelUrl.contains("/3dPanels/")) "models/" + modelUrl.substringAfter("/3dPanels/") else ""
-        )
-    }
-
-    LaunchedEffect(modelUrl) {
-        if (!modelUrl.contains("/3dPanels/")) {
-            onStatusChanged("Loading the panel's 3D model...")
-            assetPath = cacheRemoteModel(context, modelUrl).orEmpty()
-            if (assetPath.isBlank()) onStatusChanged("This panel's 3D model could not be loaded.")
-        }
-    }
-
-    fun placeAt(x: Float, y: Float): Boolean {
-        if (assetPath.isBlank()) {
-            onStatusChanged("The panel model is still loading. Please try again in a moment.")
-            return false
-        }
-        val frame = latestFrame.get()
-        val hit = frame
-            ?.hitTest(x, y)
-            ?.firstOrNull { result ->
-                val plane = result.trackable as? Plane
-                plane != null &&
-                    plane.trackingState == TrackingState.TRACKING &&
-                    // A ceiling is a downward-facing horizontal plane. The
-                    // previous filter only accepted floors, so ceiling
-                    // placement could never succeed.
-                    (plane.type == Plane.Type.VERTICAL ||
-                        plane.type == Plane.Type.HORIZONTAL_UPWARD_FACING ||
-                        plane.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING)
-            }
-        if (hit == null) {
-            onStatusChanged(
-                when {
-                    frame == null -> "Scanning the room... keep the camera moving slowly."
-                    frame.camera.trackingState != TrackingState.TRACKING ->
-                        "Tracking is limited. Point at a textured wall and move slowly."
-                    else -> "No detected surface at that point. Aim at a wall or ceiling and try again."
-                }
-            )
-            return false
-        }
-        return runCatching { hit.createAnchor() }.getOrNull()?.let { placedAnchor ->
-            placedPanels += PlacedArPanel(
-                anchor = placedAnchor,
-                assetPath = assetPath,
-                tintHex = tintHex.orEmpty(),
-                finish = finish,
-                textureAsset = textureAsset.orEmpty(),
-                sizeScale = customizationSizeScale(size)
-            )
-            onStatusChanged("Panel ${placedPanels.size} placed. Hold the ready panel to add another.")
-            onPanelPlaced()
-            true
-        } ?: run {
-            onStatusChanged("The detected surface was lost. Move the camera slowly and try again.")
-            false
-        }
-    }
-
-    LaunchedEffect(dropRequest?.token, sceneOriginInRoot) {
-        val request = dropRequest ?: return@LaunchedEffect
-        if (sceneOriginInRoot == Offset.Zero) return@LaunchedEffect
-        val placed = placeAt(request.rootPoint.x - sceneOriginInRoot.x, request.rootPoint.y - sceneOriginInRoot.y)
-        if (placed) onDropHandled()
-    }
-
-    Box(modifier = modifier.background(Color.Black).onGloballyPositioned { coordinates ->
-        sceneOriginInRoot = coordinates.positionInRoot()
-    }) {
-        ARScene(
-            modifier = Modifier.fillMaxSize(),
-            planeRenderer = true,
-            sessionConfiguration = { _, config ->
-                config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
-                config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
-            },
-            onSessionUpdated = { _, frame ->
-                latestFrame.set(frame)
-                val message = when {
-                    frame.camera.trackingState != TrackingState.TRACKING ->
-                        "Tracking the room... point at a textured wall and move slowly."
-                    frame.getUpdatedTrackables(Plane::class.java).isNotEmpty() ->
-                        "Surface detected. Tap a wall or ceiling to place the panel."
-                    else -> "Scanning the room... move slowly to detect walls and ceilings."
-                }
-                if (lastTrackingMessage.getAndSet(message) != message) onStatusChanged(message)
-            },
-            onSessionFailed = { exception ->
-                onSessionFailed(exception)
-            },
-            onTouchEvent = { event, _ ->
-                if (event.actionMasked != MotionEvent.ACTION_UP) {
-                    false
-                } else {
-                    placeAt(event.x, event.y)
-                }
-            }
-        ) {
-            placedPanels.forEach { placedPanel ->
-                val panelModel = rememberModelInstance(
-                    modelLoader,
-                    assetFileLocation = placedPanel.assetPath
-                )
-                AnchorNode(anchor = placedPanel.anchor) {
-                    panelModel?.let { instance ->
-                        val tint = placedPanel.tintHex.takeIf { it.isNotBlank() }?.let {
-                            runCatching { android.graphics.Color.parseColor("#${it.removePrefix("#")}") }.getOrNull()
-                        }
-                        val appearanceTexture = placedPanel.textureAsset
-                            .takeIf { it.isNotBlank() }
-                            ?.let { asset ->
-                                runCatching {
-                                    ImageTexture.Builder()
-                                        .bitmap(context.assets, asset)
-                                        .build(engine)
-                                }.getOrNull()
-                            }
-                        if (tint != null || appearanceTexture != null) {
-                            instance.renderableInstances.forEach { renderableInstance ->
-                                val primitiveCount = instance.renderableManager.getPrimitiveCount(renderableInstance)
-                                repeat(primitiveCount) { primitiveIndex ->
-                                    instance.renderableManager
-                                        .getMaterialInstanceAt(renderableInstance, primitiveIndex)
-                                        .apply {
-                                            appearanceTexture?.let { texture -> setBaseColorMap(texture) }
-                                            tint?.let { setBaseColorFactor(colorOf(it)) }
-                                            setRoughnessFactor(
-                                                when (placedPanel.finish.lowercase(Locale.ROOT)) {
-                                                    "gloss" -> 0.18f
-                                                    "satin" -> 0.42f
-                                                    else -> 0.78f
-                                                }
-                                            )
-                                            setMetallicFactor(if (placedPanel.finish.equals("Gloss", ignoreCase = true)) 0.12f else 0.0f)
-                                        }
-                                }
-                            }
-                        }
-                        Node(scale = Scale(placedPanel.sizeScale)) {
-                            ModelNode(modelInstance = instance, scaleToUnits = 1.0f)
-                        }
-                    }
-                }
-            }
-        }
-
-        if (placedPanels.isEmpty()) {
-            Card(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 18.dp),
-                shape = RoundedCornerShape(999.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.55f))
-            ) {
-                Text(
-                    "Move slowly, then hold the ready panel and release it on a detected wall or ceiling",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    color = Color.White,
-                    fontSize = 12.sp
-                )
-            }
-        } else {
-            Card(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 18.dp),
-                shape = RoundedCornerShape(999.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.55f))
-            ) {
-                Text(
-                    "${placedPanels.size} panel${if (placedPanels.size == 1) "" else "s"} placed · Hold the ready panel to add another",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    color = Color.White,
-                    fontSize = 12.sp
-                )
             }
         }
     }
@@ -7734,6 +7822,7 @@ private fun RefinedArScreen(
     panelOptions: List<Product>,
     isSignedIn: Boolean,
     finish: String,
+    colour: String,
     tintHex: String,
     textureAsset: String,
     pattern: String,
@@ -7754,16 +7843,29 @@ private fun RefinedArScreen(
     onQuantityChange: (Int) -> Unit,
     onPanelSelected: (Int) -> Unit,
     onBackToCatalog: () -> Unit,
-    onSaveToQuote: () -> Unit
+    addOns: List<String>,
+    onSaveToQuote: (Map<Int, Int>, Map<Int, CheckoutCustomization>) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val selectedQuantity = quantity.toIntOrNull()?.coerceAtLeast(1) ?: 1
-    val summaryTotals = selectedProduct?.let { calculatePanelTotals(it.price, selectedQuantity) }
     val hasSelectedPanel = selectedProduct != null
     val readyPanel = panelOptions.firstOrNull { it.id == selectedProduct?.id } ?: panelOptions.firstOrNull()
     val hasCapturedRoom = latestRoomCaptureUrl != null
+    val quoteQuantityByProduct = selectedProduct?.let { mapOf(it.id to selectedQuantity) }.orEmpty()
+    val quoteCustomizations = selectedProduct?.let { product ->
+        mapOf(product.id to CheckoutCustomization(
+            size = size.ifBlank { product.size },
+            finish = finish,
+            colour = colour,
+            addOns = addOns,
+            notes = buildList {
+                add("Pattern: $pattern")
+                if (notes.isNotBlank()) add(notes.trim())
+            }.joinToString("\n")
+        ))
+    }.orEmpty()
     var hasCameraPermission by rememberSaveable {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -7773,18 +7875,11 @@ private fun RefinedArScreen(
         mutableStateOf("Camera preview is ready. Capture the room to attach it to the quote.")
     }
     var isCapturing by rememberSaveable { mutableStateOf(false) }
-    var showArMode by rememberSaveable { mutableStateOf(false) }
-    var arCameraReleased by remember { mutableStateOf(false) }
-    var arInstallRequested by rememberSaveable { mutableStateOf(false) }
-    var useCameraArFallback by rememberSaveable { mutableStateOf(false) }
-    var useEasyArMode by rememberSaveable { mutableStateOf(false) }
-    var flashEnabled by rememberSaveable { mutableStateOf(false) }
+    var showAnchoredAr by remember { mutableStateOf(true) }
+    var flashEnabled by remember { mutableStateOf(false) }
     var zoomPreset by rememberSaveable { mutableStateOf(1f) }
     var showLatestCaptureFullscreen by rememberSaveable { mutableStateOf(false) }
-    var panelSelectorOrigin by remember { mutableStateOf(Offset.Zero) }
-    var panelDragOffset by remember { mutableStateOf(Offset.Zero) }
-    var dropRequest by remember { mutableStateOf<ArDropRequest?>(null) }
-    var carouselDirection by rememberSaveable { mutableIntStateOf(1) }
+
     val shutterPulseTransition = rememberInfiniteTransition(label = "shutterPulse")
     val shutterPulse by shutterPulseTransition.animateFloat(
         initialValue = 0.92f,
@@ -7799,7 +7894,10 @@ private fun RefinedArScreen(
         contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasCameraPermission = granted
-        if (granted) captureState = "Camera permission granted. You can capture the room now."
+        if (granted) {
+            captureState = "Camera permission granted. You can capture the room now."
+            showAnchoredAr = true
+        }
         else captureState = "Camera permission is required to capture a room reference."
     }
     val cameraController = remember {
@@ -7811,11 +7909,22 @@ private fun RefinedArScreen(
 
     fun applyFlashMode(enabled: Boolean) {
         val flashMode = if (enabled) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
-        runCatching {
-            cameraController.javaClass
-                .getMethod("setImageCaptureFlashMode", Int::class.javaPrimitiveType)
-                .invoke(cameraController, flashMode)
-        }
+        runCatching { cameraController.setImageCaptureFlashMode(flashMode) }
+    }
+
+    fun toggleCameraTorch() {
+        val enabled = !flashEnabled
+        applyFlashMode(enabled)
+        val torchRequest = cameraController.enableTorch(enabled)
+        torchRequest.addListener({
+            runCatching { torchRequest.get() }
+                .onSuccess { flashEnabled = enabled }
+                .onFailure {
+                    flashEnabled = false
+                    captureState = "The camera torch could not be enabled on this device."
+                    Toast.makeText(context, "Camera torch unavailable", Toast.LENGTH_SHORT).show()
+                }
+        }, ContextCompat.getMainExecutor(context))
     }
 
     fun applyZoom(ratio: Float) {
@@ -7823,109 +7932,15 @@ private fun RefinedArScreen(
         runCatching { cameraController.setZoomRatio(ratio) }
     }
 
-    fun openArMode() {
-        if (selectedProduct?.modelUrl == null) {
-            captureState = "Select a panel with a 3D model before opening AR."
-            return
-        }
-        if (!hasCameraPermission) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
-            return
-        }
-        val activity = context as? Activity
-        if (activity == null) {
-            captureState = "AR is unavailable in this screen."
-            return
-        }
-        runCatching {
-            val availability = ArCoreApk.getInstance().checkAvailability(context)
-            if (!availability.isSupported) {
-                val licenseKey = BuildConfig.EASYAR_LICENSE_KEY
-                if (licenseKey.isBlank()) {
-                    useEasyArMode = false
-                    useCameraArFallback = true
-                    captureState = "ARCore is unavailable and EasyAR is not configured. Add easyar.licenseKey to local.properties to enable room scanning."
-                    return@runCatching
-                }
-                if (!EasyArEngine.initialize(activity, licenseKey)) {
-                    useEasyArMode = false
-                    useCameraArFallback = true
-                    captureState = "EasyAR could not initialize: ${EasyArEngine.errorMessage()}"
-                    return@runCatching
-                }
-                if (!EasyArMotionTrackerCameraDevice.isAvailable()) {
-                    useEasyArMode = false
-                    useCameraArFallback = true
-                    captureState = "EasyAR motion tracking is unavailable on this device."
-                    return@runCatching
-                }
-                useEasyArMode = true
-                useCameraArFallback = false
-                showArMode = false
-                captureState = "EasyAR is starting. Move slowly to scan walls and ceilings."
-                return@runCatching
-            }
-            when (ArCoreApk.getInstance().requestInstall(activity, true)) {
-                ArCoreApk.InstallStatus.INSTALL_REQUESTED -> {
-                    useEasyArMode = false
-                    arInstallRequested = true
-                    useCameraArFallback = true
-                    captureState = "Please finish installing Google Play Services for AR. Scanning will start automatically afterward."
-                }
-                ArCoreApk.InstallStatus.INSTALLED -> {
-                    useEasyArMode = false
-                    arInstallRequested = false
-                    useCameraArFallback = false
-                    showArMode = true
-                    captureState = "Move slowly, then tap a detected wall or ceiling to add a panel."
-                }
-            }
-        }.onFailure { error ->
-            arInstallRequested = false
-            useEasyArMode = false
-            useCameraArFallback = true
-            captureState = "AR could not start safely: ${error.message ?: "ARCore is unavailable."}"
-            showArMode = false
-        }
-    }
-
-    DisposableEffect(lifecycleOwner, arInstallRequested, hasCameraPermission, selectedProduct?.modelUrl) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && arInstallRequested) {
-                arInstallRequested = false
-                openArMode()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    LaunchedEffect(lifecycleOwner, showArMode, useEasyArMode) {
-        // ARCore and CameraX must not compete for the camera. Release the
-        // CameraX use cases before creating an ARCore session.
-        if (showArMode || useEasyArMode) {
+    LaunchedEffect(lifecycleOwner, showAnchoredAr) {
+        if (showAnchoredAr) {
             cameraController.unbind()
-            arCameraReleased = true
         } else {
-            arCameraReleased = false
-            cameraController.bindToLifecycle(lifecycleOwner)
-            applyFlashMode(flashEnabled)
-            applyZoom(zoomPreset)
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        if (!hasCameraPermission) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-    }
-
-    // AR is the default experience for this screen. Start scanning as soon
-    // as permission and a 3D panel are available; users no longer need to
-    // press a separate Try AR button.
-    LaunchedEffect(hasCameraPermission, selectedProduct?.modelUrl) {
-        if (hasCameraPermission && selectedProduct?.modelUrl != null && !showArMode) {
-            openArMode()
+            if (hasCameraPermission) {
+                cameraController.bindToLifecycle(lifecycleOwner)
+                applyFlashMode(flashEnabled)
+                applyZoom(zoomPreset)
+            }
         }
     }
 
@@ -8015,57 +8030,50 @@ private fun RefinedArScreen(
     }
 
     Box(modifier = modifier) {
-        if (hasCameraPermission) {
-            if (showArMode && arCameraReleased && selectedProduct?.modelUrl != null) {
-                ArPanelPreview(
-                    modelUrl = selectedProduct.modelUrl,
+        if (showAnchoredAr) {
+            if (hasCameraPermission) {
+                AnchoredPanelArScreen(
                     modifier = Modifier.fillMaxSize(),
-                    tintHex = tintHex,
-                    textureAsset = textureAsset,
-                    finish = finish,
-                    size = size,
-                    dropRequest = dropRequest,
-                    onDropHandled = { dropRequest = null },
-                    onPanelPlaced = {
-                        captureState = "${selectedProduct?.name ?: "Panel"} placed with the selected customization."
+                    selectedPanel = readyPanel?.let { product ->
+                        ArPanelOption(
+                            id = product.id,
+                            name = product.name,
+                            modelUrl = product.modelUrl.orEmpty(),
+                            size = if (product.id == selectedProduct?.id) size.ifBlank { product.size } else product.size
+                        )
                     },
-                    onStatusChanged = { captureState = it },
-                    onSessionFailed = { exception ->
-                        showArMode = false
-                        captureState = "AR could not start: ${exception.message ?: "This device may not support ARCore."}"
-                    }
-                )
-            } else if (useEasyArMode && arCameraReleased && selectedProduct != null) {
-                EasyArPanelPreview(
-                    imageUrl = selectedProduct.imageUrl
-                        ?: customizationInventoryPreviewAsset(selectedProduct.name),
-                    size = size,
-                    dropRequest = dropRequest,
-                    onDropHandled = { dropRequest = null },
-                    onStatusChanged = { captureState = it },
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else if (useCameraArFallback && selectedProduct?.modelUrl != null) {
-                CameraOverlayPanelPreview(
-                    modelUrl = selectedProduct.modelUrl,
-                    cameraController = cameraController,
-                    imageUrl = selectedProduct.imageUrl
-                        ?: customizationInventoryPreviewAsset(selectedProduct.name),
-                    modifier = Modifier.fillMaxSize(),
-                    tintHex = tintHex,
-                    textureAsset = textureAsset,
-                    finish = finish,
-                    size = size,
-                    dropRequest = dropRequest,
-                    onDropHandled = { dropRequest = null },
-                    onStatusChanged = { captureState = it }
+                    panelOptions = panelOptions.map { product ->
+                        ArPanelOption(
+                            id = product.id,
+                            name = product.name,
+                            modelUrl = product.modelUrl.orEmpty(),
+                            size = if (product.id == selectedProduct?.id) size.ifBlank { product.size } else product.size
+                        )
+                    },
+                    onPanelSelected = onPanelSelected,
+                    onBack = onBackToCatalog,
+                    onOpenRoomCamera = { showAnchoredAr = false },
+                    onSaveToQuote = { counts -> onSaveToQuote(counts, quoteCustomizations) }
                 )
             } else {
-                CameraPreview(
-                    cameraController = cameraController,
-                    modifier = Modifier.fillMaxSize()
-                )
+                Column(
+                    modifier = Modifier.fillMaxSize().background(Color(0xFF101116)).padding(18.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("Camera permission is needed to scan and place panels.", color = Color.White)
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF77F2C))
+                    ) { Text("Enable camera") }
+                }
             }
+        } else if (hasCameraPermission) {
+            CameraPreview(
+                cameraController = cameraController,
+                modifier = Modifier.fillMaxSize()
+            )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -8084,37 +8092,13 @@ private fun RefinedArScreen(
                     .align(Alignment.TopCenter)
                     .padding(top = 14.dp)
             ) {
-                Column(
-                    Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        "AR Camera",
-                        color = Color.White,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 14.sp
-                    )
-                    Text(
-                        when {
-                            showArMode -> "Markerless AR placement"
-                            useCameraArFallback -> "Camera AR preview"
-                            else -> "Camera preview"
-                        },
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    if (selectedProduct != null) {
-                        Text(
-                            "${selectedProduct.name} · $size · $finish · $pattern",
-                            color = Color.White.copy(alpha = 0.86f),
-                            fontSize = 9.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
+                Text(
+                    "Room Camera",
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    color = Color.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.sp
+                )
             }
 
             Row(
@@ -8143,11 +8127,11 @@ private fun RefinedArScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(
-                    onClick = { flashEnabled = !flashEnabled },
+                    onClick = { toggleCameraTorch() },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.Black.copy(alpha = 0.35f),
-                    contentColor = Color.White
-                ),
+                        contentColor = Color.White
+                    ),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Icon(
@@ -8171,358 +8155,53 @@ private fun RefinedArScreen(
                 }
             }
 
-            // The ready panel is intentionally separate from the shutter. A
-            // customer selects a panel, holds it, drags it onto the detected
-            // room surface, and releases it to place one instance. The same
-            // item remains ready so several panels can be placed.
             Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                readyPanel?.let { panel ->
-                    val activeIndex = panelOptions.indexOfFirst { it.id == panel.id }.coerceAtLeast(0)
-                    val leftPanel = panelOptions.getOrNull((activeIndex - 1 + panelOptions.size) % panelOptions.size)
-                    val rightPanel = panelOptions.getOrNull((activeIndex + 1) % panelOptions.size)
-
-                    fun selectCarouselPanel(item: Product, direction: Int) {
-                        carouselDirection = direction
-                        onPanelSelected(item.id)
-                    }
-
-                    // This rectangular card is the actual ready panel. It is
-                    // the drag source; the circular control below remains the
-                    // camera capture button.
-                    Box(
-                        modifier = Modifier
-                            .onGloballyPositioned { coordinates ->
-                                val position = coordinates.positionInRoot()
-                                panelSelectorOrigin = position + Offset(coordinates.size.width / 2f, coordinates.size.height / 2f)
-                            }
-                            .pointerInput(panel.id, showArMode, useEasyArMode, useCameraArFallback) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = { panelDragOffset = Offset.Zero },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        panelDragOffset += dragAmount
-                                    },
-                                    onDragEnd = {
-                                        if ((showArMode || useEasyArMode || useCameraArFallback) && panelSelectorOrigin != Offset.Zero) {
-                                            dropRequest = ArDropRequest(panelSelectorOrigin + panelDragOffset, System.nanoTime())
-                                        }
-                                        panelDragOffset = Offset.Zero
-                                    },
-                                    onDragCancel = { panelDragOffset = Offset.Zero }
-                                )
-                            }
-                            .clickable {
-                                captureState = if (showArMode || useEasyArMode || useCameraArFallback) {
-                                    "Panel selected. Tap a detected wall or ceiling, or hold and drag this card to place it."
-                                } else {
-                                    "AR is still starting. Please aim the camera at a wall or ceiling."
-                                }
-                            }
-                            .width(118.dp)
-                            .height(64.dp)
-                            .background(Color.Black.copy(alpha = 0.62f), RoundedCornerShape(12.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(12.dp))
-                            .padding(7.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(7.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (panel.imageUrl != null) {
-                                AsyncImage(
-                                    model = panel.imageUrl,
-                                    contentDescription = "Ready ${panel.name} panel",
-                                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier.size(48.dp).background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) { Text("3D", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                            }
-                            Text("READY", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    Text(
-                        if (useEasyArMode) "Hold READY and drag to place. Tap a placed panel, then pinch to resize."
-                        else "Hold the panel and drag to place",
-                        color = Color.White.copy(alpha = 0.82f),
-                        fontSize = 9.sp
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        @Composable
-                        fun panelBubble(item: Product?, selected: Boolean, onSelect: () -> Unit) {
-                            if (item == null) return
-                            Box(
-                                modifier = Modifier
-                                    .size(if (selected) 86.dp else 48.dp)
-                                    .clip(CircleShape)
-                                    .background(if (selected) Color(0xFFF77F2C) else Color.Black.copy(alpha = 0.62f), CircleShape)
-                                    .border(if (selected) 3.dp else 1.dp, Color.White.copy(alpha = if (selected) 1f else 0.6f), CircleShape)
-                                    .clickable { onSelect() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (item.imageUrl != null) {
-                                    AsyncImage(
-                                        model = item.imageUrl,
-                                        contentDescription = item.name,
-                                        modifier = Modifier
-                                            .size(if (selected) 58.dp else 38.dp)
-                                            .clip(CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Text("3D", color = Color.White, fontSize = if (selected) 13.sp else 9.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-
-                        leftPanel?.let { item ->
-                            panelBubble(item, selected = false) { selectCarouselPanel(item, -1) }
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Box(
-                            modifier = Modifier
-                                .pointerInput(panel.id, showArMode) {
-                                    detectDragGestures(
-                                        onDragStart = { panelDragOffset = Offset.Zero },
-                                        onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            panelDragOffset += dragAmount
-                                        },
-                                        onDragEnd = {
-                                            val horizontalSwipe = kotlin.math.abs(panelDragOffset.x) > 35f &&
-                                                kotlin.math.abs(panelDragOffset.x) > kotlin.math.abs(panelDragOffset.y)
-                                            if (horizontalSwipe && panelOptions.size > 1) {
-                                                val direction = if (panelDragOffset.x < 0f) 1 else -1
-                                                val nextIndex = (activeIndex + direction + panelOptions.size) % panelOptions.size
-                                                selectCarouselPanel(panelOptions[nextIndex], direction)
-                                            }
-                                            panelDragOffset = Offset.Zero
-                                        },
-                                        onDragCancel = { panelDragOffset = Offset.Zero }
-                                    )
-                                }
-                                .clickable { captureRoom() }
-                                .size(86.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.28f), CircleShape)
-                                .border(3.dp, Color.White, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            AnimatedContent(
-                                targetState = panel.id,
-                                transitionSpec = {
-                                    (slideInHorizontally { fullWidth -> carouselDirection * fullWidth } + fadeIn()) togetherWith
-                                        (slideOutHorizontally { fullWidth -> -carouselDirection * fullWidth } + fadeOut())
-                                },
-                                label = "panelCarouselSwipe"
-                            ) { targetId ->
-                                val animatedPanel = panelOptions.firstOrNull { it.id == targetId } ?: panel
-                                if (animatedPanel.imageUrl != null) {
-                                    AsyncImage(
-                                        model = animatedPanel.imageUrl,
-                                        contentDescription = animatedPanel.name,
-                                        modifier = Modifier.size(58.dp).clip(CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Text("3D", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        rightPanel?.let { item ->
-                            panelBubble(item, selected = false) { selectCarouselPanel(item, 1) }
-                        }
-                    }
-                    Text(
-                        "Tap or swipe to browse panels",
-                        color = Color.White.copy(alpha = 0.82f),
-                        fontSize = 9.sp
-                    )
-                }
-
-            }
-
-            // Keep the AR camera completely clear of the old bottom summary,
-            // payment text, and shutter overlay.
-            if (false) Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    // Keep the camera unobstructed: the summary is now a
-                    // transparent overlay instead of a large white panel.
-                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        if (hasSelectedPanel && summaryTotals != null) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Panels placed", color = Color.White.copy(alpha = 0.78f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                    Text(selectedQuantity.toString(), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    OutlinedButton(
-                                        onClick = { onQuantityChange(maxOf(1, selectedQuantity - 1)) },
-                                        shape = RoundedCornerShape(999.dp),
-                                        modifier = Modifier.size(42.dp),
-                                        contentPadding = PaddingValues(0.dp)
-                                    ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                                    OutlinedButton(
-                                        onClick = { onQuantityChange(selectedQuantity + 1) },
-                                        shape = RoundedCornerShape(999.dp),
-                                        modifier = Modifier.size(42.dp),
-                                        contentPadding = PaddingValues(0.dp)
-                                    ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                                }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    InfoChip("Subtotal", formatPeso(summaryTotals.first), dark = true)
-                                    InfoChip("Total", formatPeso(summaryTotals.third), dark = true)
-                            }
-                        } else {
-                            Text(
-                                "Select a panel first to unlock capture and payment.",
-                                color = Color.White.copy(alpha = 0.78f),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                        Text(
-                            if (hasCapturedRoom) {
-                                "Room capture saved. Use Proceed to Payment when you are ready."
-                            } else {
-                                "Capture a room photo to unlock payment."
-                            },
-                            color = Color.White.copy(alpha = 0.78f),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            captureState,
-                            color = if (captureState.startsWith("Capture failed")) Color(0xFFFFB4A2) else Color.White.copy(alpha = 0.78f),
-                            fontSize = 11.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (hasCapturedRoom) {
-                        OutlinedButton(
-                            onClick = {
-                                onRoomCaptureSaved(null, "Room capture cleared.")
-                                captureState = "Room capture cleared. Capture a new reference when ready."
-                            },
-                            enabled = !isCapturing,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.38f)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = Color.White
-                            ),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Refresh,
-                                contentDescription = "Retake room photo",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text("Retake", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Button(
-                            onClick = {
-                                if (hasSelectedPanel) {
-                                    onSaveToQuote()
-                                } else {
-                                    onOpenCatalog()
-                                }
-                            },
-                            enabled = !isCapturing,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFF77F2C),
-                                disabledContainerColor = Color(0xFFE7D5C2),
-                                disabledContentColor = Color(0xFF9A7B5D)
-                            ),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                if (hasSelectedPanel) "Proceed to Payment" else "Proceed to Catalog",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Button(
-                                onClick = { captureRoom() },
-                                enabled = hasCameraPermission && !isCapturing && hasSelectedPanel && isSignedIn,
-                                shape = CircleShape,
-                                contentPadding = PaddingValues(0.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color.Transparent,
-                                    contentColor = Color.White,
-                                    disabledContainerColor = Color.Transparent,
-                                    disabledContentColor = Color.White.copy(alpha = 0.35f)
+                if (panelOptions.isNotEmpty()) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        items(panelOptions) { item ->
+                            val selected = item.id == selectedProduct?.id
+                            TextButton(
+                                onClick = { onPanelSelected(item.id) },
+                                colors = ButtonDefaults.textButtonColors(
+                                    containerColor = if (selected) Color(0xFFF77F2C) else Color.Black.copy(alpha = 0.62f),
+                                    contentColor = Color.White
                                 ),
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .padding(0.dp)
+                                shape = RoundedCornerShape(12.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(58.dp)
-                                        .background(Color.Black.copy(alpha = 0.30f), CircleShape)
-                                        .border(
-                                            width = 3.dp,
-                                            color = Color(0xFFF77F2C),
-                                            shape = CircleShape
-                                        )
-                                        .graphicsLayer {
-                                            scaleX = shutterPulse
-                                            scaleY = shutterPulse
-                                        }
-                                )
+                                Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
                 }
+                Text("Use the room camera to capture a reference photo before placing panels.", color = Color.White, fontSize = 11.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = { showAnchoredAr = true },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF343434))
+                    ) { Text("View panel in AR") }
+                    Button(
+                        onClick = { captureRoom() },
+                        enabled = !isCapturing && hasSelectedPanel && isSignedIn,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF343434))
+                    ) { Text(if (isCapturing) "Saving..." else "Capture room") }
+                }
+                if (hasSelectedPanel) {
+                    Button(
+                        onClick = { onSaveToQuote(quoteQuantityByProduct, quoteCustomizations) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF77F2C)),
+                        shape = RoundedCornerShape(14.dp)
+                    ) { Text("Get quotation: $selectedQuantity panel${if (selectedQuantity == 1) "" else "s"}") }
+                }
             }
+
         } else {
             Column(
                 modifier = Modifier
@@ -8541,6 +8220,7 @@ private fun RefinedArScreen(
                 }
             }
         }
+
     }
 
     if (showLatestCaptureFullscreen && latestRoomCaptureUrl != null) {
@@ -8598,6 +8278,7 @@ private fun CustomizationScreen(
     onFinishChange: (String) -> Unit,
     onSizeChange: (String) -> Unit,
     onColourChange: (String) -> Unit,
+    onPatternChange: (String) -> Unit,
     on3dChange: (Boolean) -> Unit,
     onQuantityChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
@@ -8608,12 +8289,8 @@ private fun CustomizationScreen(
     onSaveCustomization: () -> Unit,
     onCreateQuotation: () -> Unit
 ) {
-    // The preview is always the customized material; the stock/modified
-    // switch was removed from the UI.
-    // Start with the actual panel image at normal brightness. The old default
-    // applied a tint and several dark overlays, which made every new panel look
-    // shaded before the customer changed anything.
-    val showModifiedPreview = false
+    // Apply selected finish and colour choices to the preview as they change.
+    val showModifiedPreview = true
     if (selectedProduct == null) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Card(
@@ -8636,10 +8313,10 @@ private fun CustomizationScreen(
     }
 
     val quantityValue = quantity.toIntOrNull()?.coerceAtLeast(1) ?: 1
-    val panelSizes = listOf("2400 × 150mm", "2400 × 200mm", "2400 × 300mm")
-    val fixingPrice = if (size.contains("300")) 12 else 0
-    val addOnPrices = mapOf("Fixings Kit" to 18, "Pro Adhesive" to 12, "Edge Trim" to 24)
-    val total = selectedProduct.price + fixingPrice + addOns.fold(0) { sum, addOn -> sum + (addOnPrices[addOn] ?: 0) }
+    val panelSizes = listOf(selectedProduct.size).filter(String::isNotBlank)
+    val addOnPrices = CHECKOUT_ADD_ON_PRICES
+    val unitPrice = selectedProduct.price + checkoutSizeAdjustment(size) + addOns.fold(0) { sum, addOn -> sum + (addOnPrices[addOn] ?: 0) }
+    val total = checkoutLineTotal(unitPrice, size.ifBlank { selectedProduct.size }, quantityValue, selectedProduct.priceUnit)
     val dark = Color(0xFF0D0D0C)
     val panelForCategory = inventoryProducts.filter { inventoryCategory == "All" || it.category.equals(inventoryCategory, ignoreCase = true) }
 
@@ -8656,14 +8333,11 @@ private fun CustomizationScreen(
         }
         Box(Modifier.fillMaxWidth().height(300.dp)) {
             if (is3d && selectedProduct.modelUrl != null) {
-                PanelSceneViewer(
+                PanelModelPreview(
                     modelUrl = selectedProduct.modelUrl,
                     modifier = Modifier.fillMaxSize(),
                     tintHex = if (showModifiedPreview) customizationColourHex(colour) else null,
-                    // Keep the 3D material on SceneView's stable GLB path.
-                    // Applying the bitmap texture here can crash the renderer
-                    // while the Scene is being created; the colour tint below
-                    // still updates the selected panel appearance.
+                    // The Google model-viewer preview renders the catalog GLB.
                     textureAsset = null,
                     pattern = pattern,
                     finish = finish,
@@ -8706,8 +8380,11 @@ private fun CustomizationScreen(
                 } }
             }
             Text("COLOUR", color = Color(0xFFD8B16E), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                listOf("Mahogany" to Color(0xFF39241B), "Ash Grey" to Color(0xFFB7ADA0), "Chalk White" to Color(0xFFD98B3C), "Onyx" to Color(0xFF151515)).forEach { (name, swatch) ->
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(listOf("Mahogany" to Color(0xFF39241B), "Ash Grey" to Color(0xFFB7ADA0), "Chalk White" to Color(0xFFD98B3C), "Onyx" to Color(0xFF151515))) { (name, swatch) ->
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.width(48.dp).clickable {
@@ -8729,6 +8406,18 @@ private fun CustomizationScreen(
                     }
                 }
             }
+            CustomizationChoiceCard(
+                title = "FINISH",
+                options = listOf("Matte", "Satin", "Gloss"),
+                selected = finish,
+                onSelect = onFinishChange
+            )
+            CustomizationChoiceCard(
+                title = "PATTERN",
+                options = listOf("Horizontal", "Vertical", "Grid", "Chevron"),
+                selected = pattern,
+                onSelect = onPatternChange
+            )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("SIZE", color = Color(0xFFD8B16E), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp); Text(size, color = Color(0xFFD8B16E), fontSize = 10.sp) }
             panelSizes.forEach { option ->
                 val active = size == option
@@ -8754,7 +8443,10 @@ private fun CustomizationScreen(
                             Text(if (option.contains("200")) "Standard profile" else if (option.contains("150")) "Slim profile" else "Wide profile", color = Color(0xFF77716A), fontSize = 8.sp)
                         }
                     }
-                    Text("₱${if (option.contains("200")) 84 else if (option.contains("150")) 72 else 96}", color = if (active) Color(0xFFD8B16E) else Color(0xFF77716A), fontSize = 12.sp)
+                    val optionPrice = selectedProduct.price +
+                        (if (option.contains("300")) 12 else 0) +
+                        addOns.sumOf { addOnPrices[it] ?: 0 }
+                    Text(formatPeso(optionPrice), color = if (active) Color(0xFFD8B16E) else Color(0xFF77716A), fontSize = 12.sp)
                 }
             }
             OutlinedTextField(
@@ -8792,11 +8484,11 @@ private fun CustomizationScreen(
                 )
             )
             Text("ADD-ONS", color = Color(0xFFD8B16E), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            listOf("Fixings Kit" to 18, "Pro Adhesive" to 12, "Edge Trim" to 24).forEach { (name, price) ->
+            CHECKOUT_ADD_ON_PRICES.forEach { (name, price) ->
                 val active = name in addOns
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (active) Color(0xFF241F1A) else Color(0xFF171615)).border(1.dp, if (active) Color(0xFFD8B16E) else Color(0xFF302D29), RoundedCornerShape(10.dp)).clickable { onAddOnToggle(name) }.padding(horizontal = 13.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(15.dp).background(if (active) Color(0xFFD8B16E) else Color.Transparent, RoundedCornerShape(4.dp)).border(1.dp, if (active) Color(0xFFD8B16E) else Color(0xFF5B554E), RoundedCornerShape(4.dp))); Text(name, color = Color.White, fontSize = 11.sp) }
-                    Text("+₱$price", color = if (active) Color(0xFFD8B16E) else Color(0xFF9F978E), fontSize = 10.sp)
+                    Text("+${formatPeso(price)}", color = if (active) Color(0xFFD8B16E) else Color(0xFF9F978E), fontSize = 10.sp)
                 }
             }
             OutlinedTextField(
@@ -8816,7 +8508,7 @@ private fun CustomizationScreen(
                     cursorColor = Color(0xFFD8B16E)
                 )
             )
-            Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF171615)), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("BREAKDOWN", color = Color(0xFF77716A), fontSize = 9.sp, fontWeight = FontWeight.Bold); Text("₱${total}", color = Color(0xFFD8B16E), fontSize = 13.sp, fontWeight = FontWeight.Bold) } }
+            Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF171615)), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("BREAKDOWN", color = Color(0xFF77716A), fontSize = 9.sp, fontWeight = FontWeight.Bold); Text(formatPeso(total), color = Color(0xFFD8B16E), fontSize = 13.sp, fontWeight = FontWeight.Bold) } }
             Button(onClick = onPreviewInAr, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD0A25D), contentColor = Color.Black), modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(13.dp)) { Text("TRY AR", fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp) }
             OutlinedButton(onClick = onSaveCustomization, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, Color(0xFFD8B16E)), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD8B16E))) { Text("SAVE PANEL", fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp) }
             Button(onClick = onCreateQuotation, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(13.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF06416), contentColor = Color.White)) { Text("REQUEST QUOTATION", fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp) }
@@ -8900,6 +8592,7 @@ private fun PanelVisualizer(
                 Box(Modifier.fillMaxSize().background(wood.copy(alpha = 0.46f)))
                 Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.White.copy(alpha = sheen + .04f), Color.Transparent, Color.Black.copy(alpha = sheen + .08f)))))
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha = .17f), Color.Transparent, Color.Black.copy(alpha = .28f)))))
+                PatternOverlay(pattern, Modifier.fillMaxSize())
             }
         }
         Text(product?.name ?: "Panel preview", color = Color.White.copy(alpha = .78f), fontSize = 9.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 5.dp))
@@ -9030,11 +8723,11 @@ private fun CustomizationChoiceCard(
 ) {
     Card(
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF171615)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(title, fontWeight = FontWeight.Bold, color = Color(0xFF121826))
+            Text(title, fontWeight = FontWeight.Bold, color = Color(0xFFD8B16E), fontSize = 10.sp, letterSpacing = 1.sp)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(options) { option ->
                     val active = option == selected
@@ -9042,8 +8735,8 @@ private fun CustomizationChoiceCard(
                         onClick = { onSelect(option) },
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.textButtonColors(
-                            containerColor = if (active) Color(0xFFE9DDFB) else Color(0xFFF7F3EE),
-                            contentColor = if (active) Color(0xFF4A315F) else Color(0xFF667085)
+                            containerColor = if (active) Color(0xFFD8B16E) else Color(0xFF292725),
+                            contentColor = if (active) Color(0xFF171615) else Color(0xFFE8D7C4)
                         ),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                     ) { Text(option, fontWeight = if (active) FontWeight.Bold else FontWeight.Medium) }
@@ -9106,9 +8799,13 @@ private fun PaymentStepHeader(step: Int) {
                         .background(if (index < step) Color(0xFFF57419) else Color(0xFFE7E7E7), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(if (index < step - 1) "✓" else "${index + 1}", color = if (index < step) Color.White else Color(0xFF777777), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    if (index < step - 1) {
+                        Icon(Icons.Outlined.Check, contentDescription = "Step complete", tint = Color.White, modifier = Modifier.size(14.dp))
+                    } else {
+                        Text("${index + 1}", color = if (index < step) Color.White else Color(0xFF777777), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
                 }
-                Text(label, color = if (index == step - 1) Color(0xFFF57419) else Color(0xFF777777), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(label, color = if (index == step - 1) Color(0xFFF57419) else Color(0xFF777777), fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -9135,9 +8832,15 @@ private fun QuotationStep(
     latestQuoteSubtotal: String,
     latestQuoteVat: String,
     latestQuoteAmount: String,
+    onMarkUnfinished: suspend () -> Boolean,
     onConfirm: () -> Unit,
     onBack: () -> Unit
 ) {
+    var showLeaveConfirmation by remember { mutableStateOf(false) }
+    var isLeavingQuotation by remember { mutableStateOf(false) }
+    var showQuotationSavedNotice by remember { mutableStateOf(false) }
+    var leaveErrorMessage by remember { mutableStateOf("") }
+    val leaveScope = rememberCoroutineScope()
     val business = remember(quotationBusinessJson) {
         runCatching { JSONObject(quotationBusinessJson) }.getOrDefault(JSONObject())
     }
@@ -9151,11 +8854,10 @@ private fun QuotationStep(
         modifier = modifier.fillMaxSize().background(Color(0xFFFFFBF6)).verticalScroll(rememberScrollState()).padding(22.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(Modifier.fillMaxWidth().background(Color(0xFFFFF7EB)).padding(horizontal = 14.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().background(Color(0xFFFFF7EB)).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column { Text(businessName, color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Official customer quotation", color = Color(0xFF4A5568), fontSize = 11.sp) }
-            OutlinedButton(onClick = onBack, modifier = Modifier.height(38.dp), shape = RoundedCornerShape(999.dp), border = BorderStroke(1.dp, Color(0xFFE0B98F)), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF202124)), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)) { Text("No, go back", fontSize = 12.sp) }
         }
-        Text("Step 1 of 4 — Review quotation", color = Color(0xFF555555), fontSize = 12.sp)
+        Text("Step 1 of 4 â€” Review quotation", color = Color(0xFF555555), fontSize = 12.sp)
         PaymentStepHeader(1)
         Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -9171,7 +8873,7 @@ private fun QuotationStep(
                 }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFE7E9ED)))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column { Text("QUOTATION NO.", color = Color(0xFF667085), fontSize = 10.sp, fontWeight = FontWeight.Bold); Text(latestQuoteNumber.ifBlank { "Preparing…" }, color = Color(0xFF202124), fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+                    Column { Text("QUOTATION NO.", color = Color(0xFF667085), fontSize = 10.sp, fontWeight = FontWeight.Bold); Text(latestQuoteNumber.ifBlank { "Preparingâ€¦" }, color = Color(0xFF202124), fontSize = 15.sp, fontWeight = FontWeight.Bold) }
                     Column(horizontalAlignment = Alignment.End) { Text("DATE ISSUED", color = Color(0xFF667085), fontSize = 10.sp, fontWeight = FontWeight.Bold); Text(quotationIssuedAt.substringBefore("T").ifBlank { "--" }, color = Color(0xFF202124), fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -9187,11 +8889,64 @@ private fun QuotationStep(
         PaymentReviewCard("TOTALS", listOf(
             "Subtotal" to latestQuoteSubtotal,
             "VAT" to latestQuoteVat,
-            "Grand total" to latestQuoteAmount,
-            "External delivery" to "Booked and paid by you separately"
+            "Grand total" to latestQuoteAmount
         ))
-        Text("Confirm this quotation to choose J&T or Lalamove, then select a payment method and review your order before submitting.", color = Color(0xFF667085), fontSize = 13.sp, lineHeight = 19.sp)
         Button(onClick = onConfirm, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(999.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419))) { Text("Confirm quotation", color = Color.White, fontWeight = FontWeight.Bold) }
+        OutlinedButton(
+            onClick = { leaveErrorMessage = ""; showLeaveConfirmation = true },
+            enabled = !isLeavingQuotation,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(999.dp),
+            border = BorderStroke(1.dp, Color(0xFFE0B98F)),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF594A41))
+        ) { Text("Wait, I changed my mind") }
+    }
+
+    if (showLeaveConfirmation) {
+        AlertDialog(
+            onDismissRequest = { if (!isLeavingQuotation) showLeaveConfirmation = false },
+            title = { Text("Leave this quotation?") },
+            text = {
+                if (isLeavingQuotation) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color(0xFFF57419), strokeWidth = 2.dp)
+                        Text("Saving your placeâ€¦")
+                    }
+                } else Text(leaveErrorMessage.ifBlank { "You can return to this quotation later. It will be saved in your account and shown in notifications." })
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isLeavingQuotation,
+                    onClick = {
+                        isLeavingQuotation = true
+                        leaveScope.launch {
+                            val saved = runCatching { onMarkUnfinished() }.getOrDefault(false)
+                            isLeavingQuotation = false
+                            if (saved) {
+                                showLeaveConfirmation = false
+                                showQuotationSavedNotice = true
+                            } else {
+                                leaveErrorMessage = "We couldn't sync this update. Check your connection and try again."
+                            }
+                        }
+                    }
+                ) { Text(if (isLeavingQuotation) "Please waitâ€¦" else "Yes, leave") }
+            },
+            dismissButton = {
+                TextButton(enabled = !isLeavingQuotation, onClick = { showLeaveConfirmation = false; leaveErrorMessage = "" }) { Text("Stay here") }
+            }
+        )
+    }
+
+    if (showQuotationSavedNotice) {
+        AlertDialog(
+            onDismissRequest = { showQuotationSavedNotice = false; onBack() },
+            title = { Text("Quotation saved") },
+            text = { Text("Your unfinished quotation is ready to continue from the menu.") },
+            confirmButton = {
+                TextButton(onClick = { showQuotationSavedNotice = false; onBack() }) { Text("View unfinished quotation") }
+            }
+        )
     }
 }
 
@@ -9204,16 +8959,46 @@ private fun QuotationItemsCard(itemsJson: String) {
         }.getOrDefault(emptyList())
     }
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("QUOTED ITEMS", color = Color(0xFFF57419), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Items", color = Color(0xFF202124), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("${items.size} ${if (items.size == 1) "item" else "items"}", color = Color(0xFF667085), fontSize = 13.sp)
+            }
             items.forEach { item ->
-                Column(Modifier.fillMaxWidth().background(Color(0xFFF8F9FB), RoundedCornerShape(10.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(item.optString("panelModel", "Panel"), modifier = Modifier.weight(1f), color = Color(0xFF202124), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Text(formatPeso(item.optDouble("lineTotal", 0.0).toInt()), color = Color(0xFF202124), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Column(
+                    Modifier.fillMaxWidth()
+                        .border(1.dp, Color(0xFFE9E5E0), RoundedCornerShape(14.dp))
+                        .background(Color(0xFFFFFDFC), RoundedCornerShape(14.dp))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(item.optString("panelModel", "Panel"), color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    val customization = item.optJSONObject("customization")
+                    val addOns = customization?.optJSONArray("addOns")
+                    val customizationDetails = buildList {
+                        listOf(item.optString("size"), item.optString("finish"), item.optString("colour"))
+                            .filter { it.isNotBlank() }
+                            .forEach(::add)
+                        if (addOns != null) {
+                            val selectedAddOns = (0 until addOns.length()).map { addOns.optString(it) }.filter { it.isNotBlank() }
+                            if (selectedAddOns.isNotEmpty()) add("Add-ons: ${selectedAddOns.joinToString(", ")}")
+                        }
                     }
-                    Text(listOf(item.optString("size"), item.optString("finish")).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Product" }, color = Color(0xFF667085), fontSize = 11.sp)
-                    Text("${item.optInt("quantity", 1)} × ${formatPeso(item.optDouble("unitPrice", 0.0).toInt())} per unit", color = Color(0xFF475467), fontSize = 11.sp)
+                    Text(customizationDetails.joinToString(" Â· ").ifBlank { "Product" }, color = Color(0xFF667085), fontSize = 13.sp, lineHeight = 19.sp)
+                    customization?.optString("notes")?.takeIf { it.isNotBlank() }?.let { note ->
+                        Text("Notes: $note", color = Color(0xFF667085), fontSize = 13.sp, lineHeight = 19.sp)
+                    }
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFE9E5E0)))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("Quantity", color = Color(0xFF667085), fontSize = 12.sp)
+                            Text(item.optInt("quantity", 1).toString(), color = Color(0xFF202124), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("Unit price / ${if (item.optString("priceUnit") == "meter") "m" else "piece"}", color = Color(0xFF667085), fontSize = 12.sp)
+                            Text(formatPeso(item.optDouble("unitPrice", 0.0).toInt()), color = Color(0xFF202124), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
             if (items.isEmpty()) Text("Quotation items are not available yet.", color = Color(0xFF667085), fontSize = 12.sp)
@@ -9241,29 +9026,39 @@ private fun CourierSelectionStep(
             Column { Text("Aiyige", color = Color(0xFF202124), fontSize = 22.sp, fontWeight = FontWeight.Bold); Text("Delivery", color = Color(0xFF4A5568), fontSize = 11.sp) }
             OutlinedButton(onClick = onBack, enabled = !isSubmitting, modifier = Modifier.height(38.dp), shape = RoundedCornerShape(999.dp), border = BorderStroke(1.dp, Color(0xFFE0B98F)), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF202124)), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)) { Text("Back", fontSize = 12.sp) }
         }
-        Text("Step 2 of 4 — Choose a courier", color = Color(0xFF555555), fontSize = 12.sp)
+        Text("Step 2 of 4 Â· Choose a courier", color = Color(0xFF667085), fontSize = 14.sp, fontWeight = FontWeight.Medium)
         PaymentStepHeader(2)
-        Text("QUOTATION $quotationNumber", color = Color(0xFFF57419), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        Text("Choose who will deliver your order", color = Color(0xFF202124), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("QUOTATION  Â·  $quotationNumber", color = Color(0xFFB84D08), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text("Choose your courier", color = Color(0xFF202124), fontSize = 24.sp, fontWeight = FontWeight.Bold)
         courierOptions.forEach { courier ->
             val selected = courier.equals(selectedCourier, ignoreCase = true)
-            OutlinedButton(
-                onClick = { if (!isSubmitting) onCourierChange(courier) },
-                enabled = !isSubmitting,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, if (selected) Color(0xFFF57419) else Color(0xFFE0D8D0)),
-                colors = ButtonDefaults.outlinedButtonColors(containerColor = if (selected) Color(0xFFFFF3E8) else Color.White, contentColor = Color(0xFF202124))
-            ) { Text(if (selected) "✓  $courier" else courier, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) }
+            Card(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 82.dp).clickable(enabled = !isSubmitting) { onCourierChange(courier) },
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) Color(0xFFF57419) else Color(0xFFE5DED6)),
+                colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFFFFF3E8) else Color.White)
+            ) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Box(Modifier.size(48.dp).background(if (selected) Color(0xFFFFE2C8) else Color(0xFFFFF3E8), CircleShape), contentAlignment = Alignment.Center) {
+                        Text(courier.take(1), color = Color(0xFFB84D08), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(courier, color = Color(0xFF202124), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        Text("External courier service", color = Color(0xFF667085), fontSize = 13.sp)
+                    }
+                    Box(Modifier.size(26.dp).border(2.dp, if (selected) Color(0xFFF57419) else Color(0xFFB8B0A8), CircleShape).background(if (selected) Color(0xFFF57419) else Color.Transparent, CircleShape), contentAlignment = Alignment.Center) {
+                        if (selected) Icon(Icons.Outlined.Check, contentDescription = "Selected", tint = Color.White, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
         }
-        Text(if (selectedCourier.isBlank()) "Select J&T or Lalamove to continue. You will book and pay the courier directly outside the app." else "You selected $selectedCourier. Book and pay this courier directly outside the app.", color = Color(0xFF667085), fontSize = 13.sp, lineHeight = 19.sp)
         Button(
             onClick = onNext,
             enabled = selectedCourier in courierOptions && !isSubmitting,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(999.dp),
+            modifier = Modifier.fillMaxWidth().height(58.dp),
+            shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419), disabledContainerColor = Color(0xFFD8D4D0))
-        ) { Text("Continue to payment", color = Color.White, fontWeight = FontWeight.Bold) }
+        ) { Text("Continue to payment", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -9308,7 +9103,7 @@ private fun PaymentDetailsStep(
                 Text(if (isSignedIn) compactDisplayName(signInName).ifBlank { "Account" } else "Sign in", color = Color(0xFF9E4300), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.background(Color(0xFFFFE8D1), RoundedCornerShape(999.dp)).padding(horizontal = 12.dp, vertical = 10.dp))
             }
         }
-        Text("Step 3 of 4 — Payment method", color = Color(0xFF555555), fontSize = 12.sp)
+        Text("Step 3 of 4 Â· Payment method", color = Color(0xFF667085), fontSize = 14.sp, fontWeight = FontWeight.Medium)
         PaymentStepHeader(3)
 
         PaymentReviewCard("ACCOUNT", listOf(
@@ -9320,9 +9115,19 @@ private fun PaymentDetailsStep(
         ))
 
         Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                Text("PAYMENT METHOD", color = Color(0xFFF57419), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Image(
+                        painter = painterResource(R.drawable.client_logo_circle),
+                        contentDescription = "Aiyige logo",
+                        modifier = Modifier.size(44.dp).clip(CircleShape)
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("PAYMENT METHOD", color = Color(0xFFB84D08), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("Choose how youâ€™ll pay Aiyige.", color = Color(0xFF667085), fontSize = 14.sp)
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 paymentMethodOptions.chunked(2).forEach { rowMethods ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     rowMethods.forEach { method ->
@@ -9330,17 +9135,19 @@ private fun PaymentDetailsStep(
                         OutlinedButton(
                             onClick = { if (!isSubmitting) onPaymentMethodChange(method) },
                             enabled = !isSubmitting,
-                            modifier = Modifier.weight(1f).height(72.dp),
-                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).height(88.dp),
+                            shape = RoundedCornerShape(16.dp),
                             border = BorderStroke(1.dp, if (selected) Color(0xFFF57419) else Color(0xFFE0D8D0)),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 containerColor = if (selected) Color(0xFFFFF3E8) else Color.White,
                                 contentColor = Color(0xFF202124)
                             )
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(if (selected) "●" else "○", color = if (selected) Color(0xFFF57419) else Color(0xFF777777), fontSize = 16.sp)
-                                Text(method, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Box(Modifier.size(24.dp).border(2.dp, if (selected) Color(0xFFF57419) else Color(0xFFB8B0A8), CircleShape).background(if (selected) Color(0xFFF57419) else Color.Transparent, CircleShape), contentAlignment = Alignment.Center) {
+                                    if (selected) Icon(Icons.Outlined.Check, contentDescription = "Selected", tint = Color.White, modifier = Modifier.size(15.dp))
+                                }
+                                Text(method, fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -9348,35 +9155,21 @@ private fun PaymentDetailsStep(
                     }
                 }
                 }
-                val paymentInstructions = when (selectedPaymentMethod.trim().lowercase()) {
-                    "" -> "Select a payment method to view payment instructions."
-                    "gcash" -> "After submitting your order, contact Aiyige for verified GCash payment details. Use your quotation number as the payment reference."
-                    "bank transfer", "bank", "banktransfer" -> "After submitting your order, contact Aiyige for verified bank details. Use your quotation number as the payment reference."
-                    "cash" -> "Pay at the store. Your order will enter preparation after staff records the full payment."
-                    else -> "Follow the payment instructions provided by Aiyige. Your order enters preparation after full payment is confirmed."
-                }
-                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8F0))) {
-                    Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text("HOW TO PAY", color = Color(0xFF9E4300), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text(paymentInstructions, color = Color(0xFF555555), fontSize = 12.sp, lineHeight = 18.sp)
-                    }
-                }
             }
         }
         PaymentReviewCard("AMOUNT DUE", listOf("Quotation" to latestQuoteNumber, "Total to pay" to latestQuoteAmount))
-        Text("No payment is charged in the app yet. Your order will stay out of preparation until staff confirms full payment.", color = Color(0xFF667085), fontSize = 12.sp, lineHeight = 17.sp)
 
         if (latestQuoteNumber.isNotBlank()) {
             Text(latestQuoteNumber, color = Color(0xFFFFB15C), fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.background(Color(0xFF3A1D00), RoundedCornerShape(999.dp)).padding(horizontal = 12.dp, vertical = 7.dp))
+                modifier = Modifier.background(Color(0xFF3A1D00), RoundedCornerShape(999.dp)).padding(horizontal = 14.dp, vertical = 9.dp))
         }
         Button(
             onClick = onNext,
             enabled = ready,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(999.dp),
+            modifier = Modifier.fillMaxWidth().height(58.dp),
+            shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419), disabledContainerColor = Color(0xFFD8D4D0))
-        ) { Text(if (!isSignedIn) "Sign in to continue" else "Next: review order", color = Color.White, fontWeight = FontWeight.Bold) }
+        ) { Text(if (!isSignedIn) "Sign in to continue" else "Review your order", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -9392,10 +9185,12 @@ private fun PaymentSubmittedStep(
     Column(modifier.fillMaxSize().background(Color(0xFFFFFBF6)).verticalScroll(rememberScrollState()).padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Aiyige", modifier = Modifier.align(Alignment.Start), color = Color(0xFF202124), fontSize = 25.sp, fontWeight = FontWeight.Bold)
         Text("Order submitted", modifier = Modifier.align(Alignment.Start), color = Color(0xFF555555), fontSize = 12.sp)
-        Box(Modifier.size(66.dp).background(Color(0xFFEAF8F0), CircleShape).border(2.dp, Color(0xFF75B843), CircleShape), contentAlignment = Alignment.Center) { Text("✓", color = Color(0xFF4D7C0F), fontSize = 30.sp, fontWeight = FontWeight.Bold) }
+        Box(Modifier.size(66.dp).background(Color(0xFFEAF8F0), CircleShape).border(2.dp, Color(0xFF75B843), CircleShape), contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.Check, contentDescription = "Order submitted", tint = Color(0xFF4D7C0F), modifier = Modifier.size(34.dp))
+        }
         Text("Order submitted", color = Color(0xFF202124), fontSize = 21.sp, fontWeight = FontWeight.Bold)
         Text("Your order is saved. No payment was charged in the app. Complete payment using the instructions from Aiyige; preparation starts after staff confirms the full amount.", color = Color(0xFF555555), fontSize = 13.sp, textAlign = TextAlign.Center, lineHeight = 19.sp)
-        Text("▣  ${latestQuoteNumber.ifBlank { "ORDER" }}", color = Color(0xFFF57419), fontWeight = FontWeight.Bold, modifier = Modifier.border(1.dp, Color(0xFFF57419), RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
+        Text("Order #${latestQuoteNumber.ifBlank { "Pending" }}", color = Color(0xFFF57419), fontWeight = FontWeight.Bold, modifier = Modifier.border(1.dp, Color(0xFFF57419), RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
         PaymentReviewCard("PAYMENT SUMMARY", listOf("Amount due" to latestQuoteAmount, "Method" to selectedPaymentMethod, "Status" to "Awaiting payment"))
         PaymentReviewCard("ORDER STATUS", listOf("Quotation" to latestQuoteNumber, "Order" to "Submitted", "Courier" to selectedDeliveryMethod, "Delivery" to "Booked by you outside the app"))
         Button(onClick = onFinish, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419))) { Text("Track My Order", color = Color.White, fontWeight = FontWeight.Bold) }
@@ -9409,6 +9204,8 @@ private fun PaymentReviewStep(
     signInEmail: String,
     customerPhone: String,
     deliveryAddress: String,
+    deliveryRecipientName: String,
+    deliveryRecipientPhone: String,
     latestQuoteNumber: String,
     quotationItemsJson: String,
     latestQuoteSubtotal: String,
@@ -9416,38 +9213,84 @@ private fun PaymentReviewStep(
     latestQuoteAmount: String,
     selectedPaymentMethod: String,
     selectedDeliveryMethod: String,
+    isSubmitting: Boolean,
+    statusMessage: String,
     onNext: () -> Unit,
     onBack: () -> Unit
 ) {
     Column(modifier.fillMaxSize().background(Color(0xFFFFFBF6)).verticalScroll(rememberScrollState()).padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth().background(Color(0xFFFFF7EB)).padding(horizontal = 14.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column { Text("Aiyige", color = Color(0xFF202124), fontSize = 22.sp, fontWeight = FontWeight.Bold); Text("Review", color = Color(0xFF4A5568), fontSize = 11.sp) }
-            OutlinedButton(onClick = onBack, modifier = Modifier.height(38.dp), shape = RoundedCornerShape(999.dp), border = BorderStroke(1.dp, Color(0xFFE0B98F)), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF202124)), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)) { Text("Back", fontSize = 12.sp) }
+            OutlinedButton(onClick = onBack, enabled = !isSubmitting, modifier = Modifier.height(38.dp), shape = RoundedCornerShape(999.dp), border = BorderStroke(1.dp, Color(0xFFE0B98F)), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF202124)), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)) { Text("Back", fontSize = 12.sp) }
         }
-        Text("Step 4 of 4 — Final order summary", color = Color(0xFF555555), fontSize = 12.sp)
+        Text("Step 4 of 4 â€” Final order summary", color = Color(0xFF555555), fontSize = 12.sp)
         PaymentStepHeader(4)
         Text("ORDER $latestQuoteNumber", color = Color(0xFF9E4300), fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth().background(Color(0xFFFFE8D1), RoundedCornerShape(12.dp)).padding(14.dp))
         PaymentReviewCard("CUSTOMER", listOf("Name" to signInName, "Contact" to customerPhone, "Email" to signInEmail))
-        PaymentReviewCard("DELIVERY", listOf("Address" to deliveryAddress, "Courier" to selectedDeliveryMethod.ifBlank { "Choose a courier" }, "Delivery fee" to "Not included; arrange with courier"))
+        PaymentReviewCard("DELIVERY", listOf("Recipient" to deliveryRecipientName.ifBlank { signInName }, "Contact" to deliveryRecipientPhone.ifBlank { customerPhone }, "Address" to deliveryAddress, "Courier" to selectedDeliveryMethod.ifBlank { "Choose a courier" }, "Delivery fee" to "Not included; arrange with courier"))
         PaymentReviewCard("PAYMENT", listOf("Method" to selectedPaymentMethod, "Status" to "Awaiting payment", "Amount due" to latestQuoteAmount))
         QuotationItemsCard(itemsJson = quotationItemsJson)
         PaymentReviewCard("TOTALS", listOf("Subtotal" to latestQuoteSubtotal, "VAT" to latestQuoteVat, "Amount due" to latestQuoteAmount))
-        Button(onClick = onNext, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419)), shape = RoundedCornerShape(999.dp)) { Text("Confirm and submit order", color = Color.White, fontWeight = FontWeight.Bold) }
+        if (statusMessage.isNotBlank()) {
+            Text(
+                statusMessage,
+                modifier = Modifier.fillMaxWidth().background(
+                    if (isSubmitting) Color(0xFFFFF3E8) else Color(0xFFFFEBEB),
+                    RoundedCornerShape(12.dp)
+                ).padding(12.dp),
+                color = if (isSubmitting) Color(0xFF9E4300) else Color(0xFFB42318),
+                fontSize = 13.sp,
+                lineHeight = 18.sp
+            )
+        }
+        LoadingActionButton(
+            label = "Confirm and submit order",
+            loadingLabel = "Submitting orderâ€¦",
+            loading = isSubmitting,
+            enabled = latestQuoteNumber.isNotBlank() && selectedDeliveryMethod.isNotBlank() && selectedPaymentMethod.isNotBlank(),
+            onClick = onNext
+        )
     }
 }
 
 @Composable
 private fun PaymentReviewCard(title: String, rows: List<Pair<String, String>>) {
     Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(title, color = Color(0xFFF57419), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, color = Color(0xFFB84D08), fontSize = 13.sp, fontWeight = FontWeight.Bold)
             rows.forEach { (label, value) ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(label, color = Color(0xFF555555), fontSize = 12.sp)
-                    Text(value.ifBlank { "--" }, color = Color(0xFF202124), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                    Text(label, modifier = Modifier.weight(0.4f), color = Color(0xFF667085), fontSize = 14.sp, lineHeight = 20.sp)
+                    Text(value.ifBlank { "--" }, modifier = Modifier.weight(0.6f), color = Color(0xFF202124), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End, lineHeight = 20.sp)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LoadingActionButton(
+    label: String,
+    loadingLabel: String,
+    loading: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled && !loading,
+        modifier = Modifier.fillMaxWidth().height(52.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color(0xFFF57419),
+            disabledContainerColor = Color(0xFFF4B183)
+        ),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        if (loading) {
+            CircularProgressIndicator(Modifier.size(19.dp), color = Color.White, strokeWidth = 2.dp)
+            Spacer(Modifier.width(10.dp))
+        }
+        Text(if (loading) loadingLabel else label, color = Color.White, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -9476,10 +9319,15 @@ private fun PaymentScreen(
     customerCityProvince: String,
     customerPostalCode: String,
     customerPhone: String,
+    deliveryRecipientName: String,
+    deliveryRecipientPhone: String,
     selectedPaymentMethod: String,
     selectedDeliveryMethod: String,
+    initialCheckoutStep: String,
+    onCheckoutProgressChange: (step: String, courier: String, paymentMethod: String) -> Unit,
     deliveryMethodOptions: List<String>,
     paymentMethodOptions: List<String>,
+    onMarkQuotationUnfinished: suspend () -> Boolean,
     onPaymentMethodChange: (String) -> Unit,
     onDeliveryMethodChange: (String) -> Unit,
     onPayNow: () -> Unit,
@@ -9491,11 +9339,12 @@ private fun PaymentScreen(
         return
     }
 
-    var checkoutStep by rememberSaveable { mutableStateOf(CheckoutStep.QUOTATION) }
-    LaunchedEffect(paymentSubmitted, paymentStatusMessage, latestQuoteNumber) {
-        if (!paymentSubmitted && paymentStatusMessage.isBlank()) {
-            checkoutStep = CheckoutStep.QUOTATION
-        }
+    var checkoutStep by rememberSaveable(latestQuoteNumber, initialCheckoutStep) {
+        mutableStateOf(CheckoutStep.values().firstOrNull { it.name == initialCheckoutStep } ?: CheckoutStep.QUOTATION)
+    }
+    fun moveToStep(step: CheckoutStep) {
+        checkoutStep = step
+        onCheckoutProgressChange(step.name, selectedDeliveryMethod, selectedPaymentMethod)
     }
 
     if (paymentSubmitted) {
@@ -9524,7 +9373,11 @@ private fun PaymentScreen(
             latestQuoteSubtotal = latestQuoteSubtotal,
             latestQuoteVat = latestQuoteVat,
             latestQuoteAmount = latestQuoteAmount,
-            onConfirm = { checkoutStep = CheckoutStep.COURIER },
+            onMarkUnfinished = {
+                onCheckoutProgressChange(checkoutStep.name, selectedDeliveryMethod, selectedPaymentMethod)
+                onMarkQuotationUnfinished()
+            },
+            onConfirm = { moveToStep(CheckoutStep.COURIER) },
             onBack = onBack
         )
         return
@@ -9537,9 +9390,12 @@ private fun PaymentScreen(
             selectedCourier = selectedDeliveryMethod,
             courierOptions = deliveryMethodOptions,
             isSubmitting = isSubmitting,
-            onCourierChange = onDeliveryMethodChange,
-            onNext = { checkoutStep = CheckoutStep.PAYMENT },
-            onBack = { checkoutStep = CheckoutStep.QUOTATION }
+            onCourierChange = { courier ->
+                onDeliveryMethodChange(courier)
+                onCheckoutProgressChange(checkoutStep.name, courier, selectedPaymentMethod)
+            },
+            onNext = { moveToStep(CheckoutStep.PAYMENT) },
+            onBack = { moveToStep(CheckoutStep.QUOTATION) }
         )
         return
     }
@@ -9553,6 +9409,8 @@ private fun PaymentScreen(
             deliveryAddress = listOf(customerStreetAddress, customerCityProvince, customerPostalCode)
                 .filter { it.isNotBlank() }
                 .joinToString(", "),
+            deliveryRecipientName = deliveryRecipientName,
+            deliveryRecipientPhone = deliveryRecipientPhone,
             latestQuoteNumber = latestQuoteNumber,
             quotationItemsJson = quotationItemsJson,
             latestQuoteSubtotal = latestQuoteSubtotal,
@@ -9560,8 +9418,10 @@ private fun PaymentScreen(
             latestQuoteAmount = latestQuoteAmount,
             selectedPaymentMethod = selectedPaymentMethod,
             selectedDeliveryMethod = selectedDeliveryMethod,
+            isSubmitting = isSubmitting,
+            statusMessage = paymentStatusMessage,
             onNext = { onPayNow() },
-            onBack = { checkoutStep = CheckoutStep.PAYMENT }
+            onBack = { moveToStep(CheckoutStep.PAYMENT) }
         )
         return
     }
@@ -9580,9 +9440,12 @@ private fun PaymentScreen(
             selectedPaymentMethod = selectedPaymentMethod,
             paymentMethodOptions = paymentMethodOptions,
             isSubmitting = isSubmitting,
-            onPaymentMethodChange = onPaymentMethodChange,
-            onNext = { checkoutStep = CheckoutStep.ORDER_REVIEW },
-            onBack = { checkoutStep = CheckoutStep.COURIER }
+            onPaymentMethodChange = { method ->
+                onPaymentMethodChange(method)
+                onCheckoutProgressChange(checkoutStep.name, selectedDeliveryMethod, method)
+            },
+            onNext = { moveToStep(CheckoutStep.ORDER_REVIEW) },
+            onBack = { moveToStep(CheckoutStep.COURIER) }
         )
         return
     }
@@ -9620,7 +9483,7 @@ private fun PaymentScreen(
                                 fontSize = 25.sp,
                                 color = Color(0xFF241B16)
                             )
-                            Text("Step 3 of 4 — Payment method", color = Color(0xFF555555), fontSize = 12.sp)
+                            Text("Step 3 of 4 â€” Payment method", color = Color(0xFF555555), fontSize = 12.sp)
                             PaymentStepHeader(3)
                         }
                         Box(
@@ -9846,7 +9709,7 @@ private fun PaymentScreen(
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    if (paymentSubmitted) "Payment submitted" else "Payment status",
+                                    if (paymentSubmitted) "Order submitted" else "Payment status",
                                     color = statusColor,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
@@ -9878,11 +9741,11 @@ private fun PaymentScreen(
                 Text(
                     when {
                         isSubmitting -> "Submitting..."
-                        paymentSubmitted -> "Submitted ✓"
+                        paymentSubmitted -> "Submitted"
                         !isSignedIn -> "Sign in to submit"
                         !customerStreetAddress.isNotBlank() || !customerCityProvince.isNotBlank() || !customerPostalCode.matches(Regex("\\d{4}")) -> "Add delivery address"
-                        latestQuoteAmount.isNotBlank() -> "Next — review order"
-                        else -> "Next — review order"
+                        latestQuoteAmount.isNotBlank() -> "Next â€” review order"
+                        else -> "Next â€” review order"
                     },
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
@@ -10123,7 +9986,7 @@ private fun AuthBrandHeader(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun SettingsScreen(
     modifier: Modifier = Modifier,
@@ -10155,15 +10018,20 @@ private fun SettingsScreen(
     profileCityProvince: String,
     profilePostalCode: String,
     recentQuoteHistory: List<QuoteHistoryEntry>,
+    quotationAlertsEnabled: Boolean,
+    panelAlertsEnabled: Boolean,
+    onQuotationAlertsChange: (Boolean) -> Unit,
+    onPanelAlertsChange: (Boolean) -> Unit,
     registeredUsers: List<RegisteredUser>,
     authNotice: String,
     isAuthEmailRequestInFlight: Boolean,
     verificationEmail: String,
     verificationType: String,
     onSaveProfile: (String, String, String, String, String, String, String, String, String) -> Unit,
-    onChangePassword: (String) -> Unit,
+    onChangePassword: (String, String) -> Unit,
     onRegisterUser: (RegisteredUser) -> Unit,
     onRequestPasswordRecovery: (String) -> Unit,
+    onResendVerificationCode: (String, String) -> Unit,
     onVerifyEmailOtp: (String) -> Unit,
     onOpenAddress: () -> Unit,
     page: SettingsPage,
@@ -10177,7 +10045,7 @@ private fun SettingsScreen(
 ) {
     val scrollState = rememberScrollState()
     var loginIdentifier by rememberSaveable { mutableStateOf("") }
-    var loginPassword by rememberSaveable { mutableStateOf("") }
+    var loginPassword by remember { mutableStateOf("") }
     var registerFirstName by rememberSaveable { mutableStateOf("") }
     var registerMiddleName by rememberSaveable { mutableStateOf("") }
     var registerLastName by rememberSaveable { mutableStateOf("") }
@@ -10185,19 +10053,18 @@ private fun SettingsScreen(
     var registerGender by rememberSaveable { mutableStateOf("") }
     var registerMobileNumber by rememberSaveable { mutableStateOf("") }
     var registerStreetAddress by rememberSaveable { mutableStateOf("") }
-    var registerCityProvince by rememberSaveable { mutableStateOf("") }
+    var registerCity by rememberSaveable { mutableStateOf("") }
     var registerProvince by rememberSaveable { mutableStateOf("") }
     var registerPostalCode by rememberSaveable { mutableStateOf("") }
     var registerEmail by rememberSaveable { mutableStateOf("") }
-    var registerPassword by rememberSaveable { mutableStateOf("") }
-    var registerConfirmPassword by rememberSaveable { mutableStateOf("") }
+    // Never save plaintext credentials in Android's restorable UI state.
+    var registerPassword by remember { mutableStateOf("") }
+    var registerConfirmPassword by remember { mutableStateOf("") }
     var acceptTerms by rememberSaveable { mutableStateOf(false) }
     var acceptPrivacy by rememberSaveable { mutableStateOf(false) }
     var registerSubmitted by rememberSaveable { mutableStateOf(false) }
     var registerStep by rememberSaveable { mutableIntStateOf(1) }
-    var registerReviewPasswordVisible by rememberSaveable { mutableStateOf(false) }
     var loginSubmitted by rememberSaveable { mutableStateOf(false) }
-    var loginFeedback by rememberSaveable { mutableStateOf("") }
     var loginPasswordVisible by rememberSaveable { mutableStateOf(false) }
     var registerGenderMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var registerPasswordVisible by rememberSaveable { mutableStateOf(false) }
@@ -10205,6 +10072,7 @@ private fun SettingsScreen(
     var profilePasswordVisible by rememberSaveable { mutableStateOf(false) }
     var profileCurrentPasswordVisible by rememberSaveable { mutableStateOf(false) }
     var profileConfirmPasswordVisible by rememberSaveable { mutableStateOf(false) }
+    var profileNewPasswordFocused by rememberSaveable { mutableStateOf(false) }
     var recoveryPasswordVisible by rememberSaveable { mutableStateOf(false) }
     var recoveryConfirmPasswordVisible by rememberSaveable { mutableStateOf(false) }
     var showProfileEditor by rememberSaveable { mutableStateOf(false) }
@@ -10219,8 +10087,6 @@ private fun SettingsScreen(
     var showRecentlyViewedDialog by rememberSaveable { mutableStateOf(false) }
     var showVersionDialog by rememberSaveable { mutableStateOf(false) }
     var supportTopic by rememberSaveable { mutableStateOf("Help center") }
-    var quotationAlertsEnabled by rememberSaveable { mutableStateOf(true) }
-    var panelAlertsEnabled by rememberSaveable { mutableStateOf(true) }
     val profileSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val securitySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val notificationsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -10236,10 +10102,10 @@ private fun SettingsScreen(
     var profilePostalDraft by rememberSaveable { mutableStateOf("") }
     var profileUsernameDraft by rememberSaveable { mutableStateOf("") }
     var currentPasswordDraft by rememberSaveable { mutableStateOf("") }
-    var passwordDraft by rememberSaveable { mutableStateOf("") }
-    var confirmPasswordDraft by rememberSaveable { mutableStateOf("") }
-    var recoveryPasswordDraft by rememberSaveable { mutableStateOf("") }
-    var recoveryPasswordConfirmDraft by rememberSaveable { mutableStateOf("") }
+    var passwordDraft by remember { mutableStateOf("") }
+    var confirmPasswordDraft by remember { mutableStateOf("") }
+    var recoveryPasswordDraft by remember { mutableStateOf("") }
+    var recoveryPasswordConfirmDraft by remember { mutableStateOf("") }
     var backendUrlDraft by rememberSaveable(backendBaseUrl) { mutableStateOf(backendBaseUrl) }
     var verificationCode by rememberSaveable(verificationEmail, verificationType) { mutableStateOf("") }
     val settingsAvatarLabel = remember(signInName) {
@@ -10295,7 +10161,7 @@ private fun SettingsScreen(
         registerEmail,
         registerMobileNumber,
         registerStreetAddress,
-        registerCityProvince,
+        registerCity,
         registerPostalCode,
         registerPassword,
         registerConfirmPassword,
@@ -10312,7 +10178,7 @@ private fun SettingsScreen(
             email = registerEmail,
             mobileNumber = registerMobileNumber,
             streetAddress = registerStreetAddress,
-            cityProvince = registerCityProvince,
+            cityProvince = registerCity,
             postalCode = registerPostalCode,
             password = registerPassword,
             confirmPassword = registerConfirmPassword,
@@ -10322,30 +10188,66 @@ private fun SettingsScreen(
         )
     }
 
-    val loginErrorVisible = loginSubmitted && loginFeedback.isNotBlank()
+    val loginErrorVisible = loginSubmitted && authNotice.isNotBlank()
     val showRegisterErrors = registerSubmitted
     val authFieldColors = OutlinedTextFieldDefaults.colors(
-        unfocusedContainerColor = Color.White,
-        focusedContainerColor = Color.White,
-        unfocusedBorderColor = Color(0xFFE7DDD1),
-        focusedBorderColor = Color(0xFFF77F2C),
-        cursorColor = Color(0xFFF77F2C)
+        unfocusedContainerColor = Color(0xFFFFFCF7),
+        focusedContainerColor = Color(0xFFFFFCF7),
+        unfocusedBorderColor = Color(0xFFE8D8C6),
+        focusedBorderColor = Color(0xFFF57419),
+        unfocusedTextColor = Color(0xFF25211D),
+        focusedTextColor = Color(0xFF25211D),
+        unfocusedPlaceholderColor = Color(0xFF8A8178),
+        focusedPlaceholderColor = Color(0xFF8A8178),
+        focusedLabelColor = Color(0xFFB95713),
+        cursorColor = Color(0xFFF57419)
     )
 
     if (page == SettingsPage.ForgotPassword && !isSignedIn) {
         Column(
-            modifier = modifier.fillMaxSize().verticalScroll(scrollState).background(Color.White).padding(horizontal = 34.dp, vertical = 38.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = modifier.fillMaxSize().imePadding().verticalScroll(scrollState).background(Color(0xFFFFF7EB)).padding(horizontal = 20.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            Text("Forgot password?", fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF202124))
-            Text("Enter your email address and we’ll send you a reset code.", color = Color(0xFF777777), fontSize = 14.sp, lineHeight = 22.sp)
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(loginIdentifier, { loginIdentifier = it }, modifier = Modifier.fillMaxWidth().height(52.dp), label = { Text("Email address") }, placeholder = { Text("name@email.com") }, singleLine = true, shape = RoundedCornerShape(10.dp), colors = authFieldColors)
-                    if (authNotice.isNotBlank()) Text(authNotice, color = Color(0xFF777777), fontSize = 13.sp)
-                    Button(onClick = { onRequestPasswordRecovery(loginIdentifier.trim()) }, enabled = !isAuthEmailRequestInFlight, modifier = Modifier.fillMaxWidth().height(47.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419)), shape = RoundedCornerShape(10.dp)) { Text("Send reset code", color = Color.White, fontWeight = FontWeight.Bold) }
-                    TextButton(onClick = { onPageChange(SettingsPage.Login) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Back to sign in", color = Color(0xFFF57419), fontWeight = FontWeight.SemiBold) }
+            IconButton(onClick = { onPageChange(SettingsPage.Login) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back to sign in", tint = Color(0xFF344054)) }
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(64.dp).background(Color(0xFFFFE8D1), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.Lock, contentDescription = null, tint = Color(0xFFF57419), modifier = Modifier.size(30.dp))
                 }
+                Text("Reset your password", fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF202124), textAlign = TextAlign.Center)
+                Text("Enter the email linked to your account. Weâ€™ll send you a secure reset code.", color = Color(0xFF667085), fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center)
+            }
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    OutlinedTextField(
+                        value = loginIdentifier,
+                        onValueChange = { loginIdentifier = it.trimStart() },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Email address") },
+                        placeholder = { Text("you@example.com") },
+                        leadingIcon = { Icon(Icons.Outlined.Email, contentDescription = null, tint = Color(0xFF8A6B53)) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = authFieldColors,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                        enabled = !isAuthEmailRequestInFlight
+                    )
+                    if (authNotice.isNotBlank()) {
+                        Text(authNotice, color = Color(0xFF667085), fontSize = 13.sp, lineHeight = 19.sp)
+                    }
+                    Button(
+                        onClick = { onRequestPasswordRecovery(loginIdentifier.trim()) },
+                        enabled = loginIdentifier.contains("@") && !isAuthEmailRequestInFlight,
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419)),
+                        shape = RoundedCornerShape(15.dp)
+                    ) {
+                        if (isAuthEmailRequestInFlight) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                        else Text("Send reset code", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            TextButton(onClick = { onPageChange(SettingsPage.Login) }, modifier = Modifier.align(Alignment.CenterHorizontally), enabled = !isAuthEmailRequestInFlight) {
+                Text("Back to sign in", color = Color(0xFF9E4300), fontWeight = FontWeight.SemiBold)
             }
         }
         return
@@ -10357,18 +10259,46 @@ private fun SettingsScreen(
             Text(authNotice.ifBlank { "Enter the verification code sent to your email." }, color = Color(0xFF777777), fontSize = 14.sp, lineHeight = 22.sp)
             OutlinedTextField(verificationCode, { verificationCode = it.filter(Char::isDigit).take(8) }, modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp), label = { Text("Verification code") }, singleLine = true, shape = RoundedCornerShape(10.dp), colors = authFieldColors, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
             Button(onClick = { onVerifyEmailOtp(verificationCode) }, enabled = verificationCode.length in 6..8 && !isAuthEmailRequestInFlight, modifier = Modifier.fillMaxWidth().height(47.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419)), shape = RoundedCornerShape(10.dp)) { Text("Verify code", color = Color.White, fontWeight = FontWeight.Bold) }
-            TextButton(onClick = { onPageChange(SettingsPage.Login) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Back to sign in", color = Color(0xFFF57419), fontWeight = FontWeight.SemiBold) }
+            TextButton(
+                onClick = { onResendVerificationCode(verificationEmail, verificationType) },
+                enabled = verificationEmail.isNotBlank() && verificationType in setOf("signup", "recovery") && !isAuthEmailRequestInFlight,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Text(if (isAuthEmailRequestInFlight) "Sendingâ€¦" else "Resend code", color = Color(0xFFF57419), fontWeight = FontWeight.SemiBold)
+            }
+            TextButton(
+                onClick = { onPageChange(if (verificationType == "signup") SettingsPage.Register else SettingsPage.Login) },
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                enabled = !isAuthEmailRequestInFlight
+            ) {
+                Text(if (verificationType == "signup") "Back to create account" else "Back to sign in", color = Color(0xFFF57419), fontWeight = FontWeight.SemiBold)
+            }
         }
         return
     }
 
     if (page == SettingsPage.RecoverPassword && !isSignedIn) {
-        Column(modifier = modifier.fillMaxSize().verticalScroll(scrollState).background(Color.White).padding(horizontal = 34.dp, vertical = 38.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("Create a new password", fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF202124))
-            Text("Choose a secure password for your account.", color = Color(0xFF777777), fontSize = 14.sp, lineHeight = 22.sp)
-            OutlinedTextField(recoveryPasswordDraft, { recoveryPasswordDraft = it }, modifier = Modifier.fillMaxWidth().height(52.dp), label = { Text("New password") }, singleLine = true, visualTransformation = if (recoveryPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { recoveryPasswordVisible = !recoveryPasswordVisible }) { Icon(if (recoveryPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (recoveryPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF777777)) } }, shape = RoundedCornerShape(10.dp), colors = authFieldColors)
-            OutlinedTextField(recoveryPasswordConfirmDraft, { recoveryPasswordConfirmDraft = it }, modifier = Modifier.fillMaxWidth().height(52.dp), label = { Text("Confirm password") }, singleLine = true, visualTransformation = if (recoveryConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { recoveryConfirmPasswordVisible = !recoveryConfirmPasswordVisible }) { Icon(if (recoveryConfirmPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (recoveryConfirmPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF777777)) } }, shape = RoundedCornerShape(10.dp), colors = authFieldColors)
-            Button(onClick = { if (recoveryPasswordDraft.isNotBlank() && recoveryPasswordDraft == recoveryPasswordConfirmDraft) onChangePassword(recoveryPasswordDraft) }, enabled = recoveryPasswordDraft.isNotBlank() && recoveryPasswordDraft == recoveryPasswordConfirmDraft && !isAuthEmailRequestInFlight, modifier = Modifier.fillMaxWidth().height(47.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419)), shape = RoundedCornerShape(10.dp)) { Text("Update password", color = Color.White, fontWeight = FontWeight.Bold) }
+        Column(modifier = modifier.fillMaxSize().imePadding().verticalScroll(scrollState).background(Color(0xFFFFF7EB)).padding(horizontal = 20.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            IconButton(onClick = { onPageChange(SettingsPage.Login) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back to sign in", tint = Color(0xFF344054)) }
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(64.dp).background(Color(0xFFFFE8D1), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.Lock, contentDescription = null, tint = Color(0xFFF57419), modifier = Modifier.size(30.dp))
+                }
+                Text("Create a new password", fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF202124), textAlign = TextAlign.Center)
+                Text("Choose a new password to secure your account.", color = Color(0xFF667085), fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center)
+            }
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    OutlinedTextField(recoveryPasswordDraft, { recoveryPasswordDraft = it }, modifier = Modifier.fillMaxWidth(), label = { Text("New password") }, placeholder = { Text("Enter a new password") }, singleLine = true, visualTransformation = if (recoveryPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { recoveryPasswordVisible = !recoveryPasswordVisible }) { Icon(if (recoveryPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (recoveryPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF667085)) } }, shape = RoundedCornerShape(14.dp), colors = authFieldColors)
+                    OutlinedTextField(recoveryPasswordConfirmDraft, { recoveryPasswordConfirmDraft = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Confirm new password") }, placeholder = { Text("Re-enter your password") }, singleLine = true, visualTransformation = if (recoveryConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { recoveryConfirmPasswordVisible = !recoveryConfirmPasswordVisible }) { Icon(if (recoveryConfirmPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (recoveryConfirmPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF667085)) } }, shape = RoundedCornerShape(14.dp), colors = authFieldColors)
+                    Text("Use at least 8 characters with uppercase and lowercase letters, a number, and a symbol.", color = Color(0xFF667085), fontSize = 12.sp, lineHeight = 18.sp)
+                    if (authNotice.isNotBlank()) Text(authNotice, color = Color(0xFF667085), fontSize = 13.sp, lineHeight = 19.sp)
+                    Button(onClick = { if (isStrongPassword(recoveryPasswordDraft) && recoveryPasswordDraft == recoveryPasswordConfirmDraft) onChangePassword("", recoveryPasswordDraft) }, enabled = isStrongPassword(recoveryPasswordDraft) && recoveryPasswordDraft == recoveryPasswordConfirmDraft && !isAuthEmailRequestInFlight, modifier = Modifier.fillMaxWidth().height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419)), shape = RoundedCornerShape(15.dp)) {
+                        if (isAuthEmailRequestInFlight) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                        else Text("Save new password", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
         return
     }
@@ -10380,65 +10310,72 @@ private fun SettingsScreen(
         Column(
             modifier = modifier
                 .fillMaxSize()
+                .imePadding()
                 .verticalScroll(scrollState)
-                .background(Brush.verticalGradient(listOf(Color(0xFFFFF7EB), Color(0xFFF4EFE7))))
-                .padding(horizontal = 22.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .background(Color(0xFFFFF7EB))
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            AuthBrandHeader("Customer sign in")
-            Text("Welcome back", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF121826))
-            Text("Sign in to view your panels, quotations, and orders.", color = Color(0xFF667085), fontSize = 13.sp, lineHeight = 19.sp)
-            Text("Email address", color = Color(0xFF222222), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            OutlinedTextField(
-                value = loginIdentifier,
-                onValueChange = { loginIdentifier = it },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                placeholder = { Text("name@email.com", color = Color(0xFF999999)) },
-                singleLine = true,
-                trailingIcon = { Icon(Icons.Outlined.Email, contentDescription = null, tint = Color(0xFF777777)) },
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Color.White, focusedContainerColor = Color.White, unfocusedBorderColor = Color(0xFFD8D2CB), focusedBorderColor = Color(0xFFF57419), unfocusedTextColor = Color(0xFF222222), focusedTextColor = Color(0xFF222222), unfocusedPlaceholderColor = Color(0xFF888888), focusedPlaceholderColor = Color(0xFF888888), cursorColor = Color(0xFFF57419)),
-                shape = RoundedCornerShape(10.dp)
-            )
-            Text("Password", color = Color(0xFF222222), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            OutlinedTextField(
-                value = loginPassword,
-                onValueChange = { loginPassword = it },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                placeholder = { Text("••••••••••", color = Color(0xFF888888)) },
-                singleLine = true,
-                visualTransformation = if (loginPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { loginPasswordVisible = !loginPasswordVisible }) {
-                        Icon(
-                            imageVector = if (loginPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                            contentDescription = if (loginPasswordVisible) "Hide password" else "Show password",
-                            tint = Color(0xFF777777),
-                            modifier = Modifier.size(24.dp)
-                        )
+            AuthBrandHeader("Customer sign in", compact = true)
+            Text("Welcome back", fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp, color = Color(0xFF17171A))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Email address", color = Color(0xFF3A3A3C), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(
+                        value = loginIdentifier,
+                        onValueChange = { loginIdentifier = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                        placeholder = { Text("name@email.com", color = Color(0xFF8E8E93)) },
+                        singleLine = true,
+                        trailingIcon = { Icon(Icons.Outlined.Email, contentDescription = null, tint = Color(0xFF8E8E93)) },
+                        colors = authFieldColors,
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    Text("Password", color = Color(0xFF3A3A3C), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(
+                        value = loginPassword,
+                        onValueChange = { loginPassword = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                        placeholder = { Text("Enter your password", color = Color(0xFF8E8E93)) },
+                        singleLine = true,
+                        visualTransformation = if (loginPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { loginPasswordVisible = !loginPasswordVisible }) {
+                                Icon(
+                                    imageVector = if (loginPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                    contentDescription = if (loginPasswordVisible) "Hide password" else "Show password",
+                                    tint = Color(0xFF8E8E93),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        },
+                        colors = authFieldColors,
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    if (loginErrorVisible) Text(authNotice, color = Color(0xFFB42318), fontSize = 13.sp)
+                    TextButton(onClick = { onPageChange(SettingsPage.ForgotPassword) }, enabled = !isAuthEmailRequestInFlight, modifier = Modifier.align(Alignment.End)) { Text("Forgot password?", color = Color(0xFFF57419), fontWeight = FontWeight.SemiBold) }
+                    LoadingActionButton("Sign in", "Signing inâ€¦", isAuthEmailRequestInFlight, loginIdentifier.isNotBlank() && loginPassword.isNotBlank()) {
+                        loginSubmitted = true
+                        onSignIn(loginIdentifier.trim(), loginPassword)
                     }
-                },
-                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Color.White, focusedContainerColor = Color.White, unfocusedBorderColor = Color(0xFFD8D2CB), focusedBorderColor = Color(0xFFF57419), unfocusedTextColor = Color(0xFF222222), focusedTextColor = Color(0xFF222222), unfocusedPlaceholderColor = Color(0xFF888888), focusedPlaceholderColor = Color(0xFF888888), cursorColor = Color(0xFFF57419)),
-                shape = RoundedCornerShape(10.dp)
-            )
-            if (loginErrorVisible) Text(loginFeedback, color = Color(0xFFC62828), fontSize = 13.sp)
-            if (authNotice.isNotBlank()) Text(authNotice, color = Color(0xFF4F7C26), fontSize = 13.sp)
-            TextButton(onClick = { onPageChange(SettingsPage.ForgotPassword) }, modifier = Modifier.align(Alignment.End)) { Text("Forgot password?", color = Color(0xFFF57419), fontWeight = FontWeight.SemiBold) }
-            Button(onClick = { loginSubmitted = true; onSignIn(loginIdentifier.trim(), loginPassword) }, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419)), shape = RoundedCornerShape(10.dp)) { Text("Sign in", color = Color.White, fontWeight = FontWeight.Bold) }
-            OutlinedButton(
-                onClick = onUseDemoAccount,
-                modifier = Modifier.fillMaxWidth().height(46.dp),
-                border = BorderStroke(1.dp, Color(0xFFF57419)),
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF57419))
-            ) { Text("Continue as Demo Customer", fontWeight = FontWeight.Bold) }
-            Text("or continue with", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            OutlinedButton(
-                onClick = { },
-                modifier = Modifier.fillMaxWidth().height(46.dp),
-                border = BorderStroke(1.dp, Color(0xFFB8B8B8)),
-                shape = RoundedCornerShape(10.dp)
-            ) { Text("◉  Sign in with Google", color = Color.Black, fontWeight = FontWeight.SemiBold) }
-            TextButton(onClick = { registerStep = 1; onPageChange(SettingsPage.Register) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Don't have an account? ", color = Color.Black); Text("Create one", color = Color(0xFFF57419), fontWeight = FontWeight.Bold) }
+                    OutlinedButton(
+                        onClick = onUseDemoAccount,
+                        enabled = !isAuthEmailRequestInFlight,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        border = BorderStroke(1.dp, Color(0xFFE8D8C6)),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color(0xFFFFF6EA),
+                            contentColor = Color(0xFF8F420C)
+                        )
+                    ) { Text("Continue as Demo Customer", fontWeight = FontWeight.SemiBold) }
+                }
+            }
+            TextButton(onClick = { registerStep = 1; onPageChange(SettingsPage.Register) }, enabled = !isAuthEmailRequestInFlight, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Don't have an account? ", color = Color(0xFF3A3A3C)); Text("Create one", color = Color(0xFFF57419), fontWeight = FontWeight.Bold) }
         }
         return
     }
@@ -10469,103 +10406,171 @@ private fun SettingsScreen(
             }
         if (registerStep == 2) {
             val contactFieldColors = OutlinedTextFieldDefaults.colors(
-                unfocusedContainerColor = Color(0xFFF3F3F3), focusedContainerColor = Color(0xFFF3F3F3),
-                unfocusedBorderColor = Color(0xFFD7D7D7), focusedBorderColor = Color(0xFFF57419),
-                unfocusedTextColor = Color(0xFF222222), focusedTextColor = Color(0xFF222222), cursorColor = Color(0xFFF57419)
+                unfocusedContainerColor = Color(0xFFFFFCF7), focusedContainerColor = Color(0xFFFFFCF7),
+                unfocusedBorderColor = Color(0xFFE8D8C6), focusedBorderColor = Color(0xFFF57419),
+                unfocusedTextColor = Color(0xFF25211D), focusedTextColor = Color(0xFF25211D),
+                unfocusedPlaceholderColor = Color(0xFF8A8178), focusedPlaceholderColor = Color(0xFF8A8178),
+                focusedLabelColor = Color(0xFFB95713), cursorColor = Color(0xFFF57419)
             )
-            Column(modifier = modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFFFFF7EB), Color(0xFFF4EFE7)))).imePadding().verticalScroll(scrollState).padding(horizontal = 22.dp, vertical = 20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = modifier.fillMaxSize().background(Color(0xFFFFF7EB)).imePadding().verticalScroll(scrollState).padding(horizontal = 20.dp, vertical = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 AuthBrandHeader("Create your customer account", compact = true)
-                Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { registerStep = 1 }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFFB9B6AE)) }; Column { Text("Create account", color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Step 2 of 3 — Contact info", color = Color(0xFF777777), fontSize = 12.sp) } }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) { listOf("✓" to "Personal", "2" to "Contact", "3" to "Review").forEachIndexed { i, item -> Column(horizontalAlignment = Alignment.CenterHorizontally) { Box(Modifier.size(34.dp).background(if (i < 2) Color(0xFFF57419) else Color.Black, CircleShape), contentAlignment = Alignment.Center) { Text(item.first, color = Color.White, fontWeight = FontWeight.Bold) }; Text(item.second, color = if (i == 1) Color(0xFFF57419) else Color(0xFF777777), fontSize = 12.sp, fontWeight = FontWeight.Bold) } } }
-                Text("Contact details", color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                OutlinedTextField(registerMobileNumber, { registerMobileNumber = it.filter(Char::isDigit).take(11) }, label = { Text("Mobile number *") }, placeholder = { Text("09XX XXX XXXX") }, singleLine = true, modifier = keyboardAware(mobileBringIntoView).fillMaxWidth(), colors = contactFieldColors, shape = RoundedCornerShape(10.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
-                OutlinedTextField(registerStreetAddress, { registerStreetAddress = it.replaceFirstChar { char -> char.uppercase() } }, label = { Text("Complete address *") }, placeholder = { Text("House no., street, barangay") }, singleLine = true, modifier = keyboardAware(streetBringIntoView).fillMaxWidth(), colors = contactFieldColors, shape = RoundedCornerShape(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = registerCityProvince,
-                        onValueChange = { registerCityProvince = it.replaceFirstChar { char -> char.uppercase() } },
-                        placeholder = { Text("City / Municipality") },
-                        singleLine = true,
-                        modifier = keyboardAware(cityBringIntoView).weight(1f).height(64.dp),
-                        colors = contactFieldColors,
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                    OutlinedTextField(
-                        value = registerProvince,
-                        onValueChange = { registerProvince = it.replaceFirstChar { char -> char.uppercase() } },
-                        placeholder = { Text("Province") },
-                        singleLine = true,
-                        modifier = keyboardAware(provinceBringIntoView).weight(1f).height(64.dp),
-                        colors = contactFieldColors,
-                        shape = RoundedCornerShape(10.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = { registerStep = 1 }, modifier = Modifier.height(40.dp), contentPadding = PaddingValues(horizontal = 10.dp), border = BorderStroke(1.dp, Color(0xFFE8D8C6)), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFFFFFCF7), contentColor = Color(0xFF8F420C))) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("Back", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.width(10.dp)); Column { Text("Create account", color = Color(0xFF1C1C1E), fontSize = 18.sp, fontWeight = FontWeight.Bold); Text("Step 2 of 3 Â· Contact info", color = Color(0xFF8E8E93), fontSize = 12.sp) }
                 }
-                OutlinedTextField(registerPostalCode, { registerPostalCode = it.filter(Char::isDigit).take(4) }, label = { Text("ZIP code *") }, placeholder = { Text("4 digits") }, singleLine = true, modifier = keyboardAware(postalBringIntoView).width(195.dp), colors = contactFieldColors, shape = RoundedCornerShape(10.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                Button(onClick = { registerSubmitted = true; if (registrationValidation.errors["mobileNumber"] == null && registrationValidation.errors["streetAddress"] == null && registrationValidation.errors["postalCode"] == null) { registerCityProvince = listOf(registerCityProvince, registerProvince).filter { it.isNotBlank() }.joinToString(", "); registerStep = 3 } }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419)), shape = RoundedCornerShape(10.dp)) { Text("Next — review details", color = Color.White, fontWeight = FontWeight.Bold) }
-                TextButton(onClick = { registerStep = 1 }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Back", color = Color(0xFF999999)) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) { listOf("1" to "Personal", "2" to "Contact", "3" to "Review").forEachIndexed { i, item -> Column(horizontalAlignment = Alignment.CenterHorizontally) { Box(Modifier.size(34.dp).background(if (i < 2) Color(0xFFF57419) else Color(0xFFE5E5EA), CircleShape), contentAlignment = Alignment.Center) { Text(item.first, color = if (i < 2) Color.White else Color(0xFF6E6E73), fontWeight = FontWeight.Bold) }; Text(item.second, color = if (i == 1) Color(0xFFF57419) else Color(0xFF6E6E73), fontSize = 12.sp, fontWeight = FontWeight.SemiBold) } } }
+                Text("Contact details", color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                OutlinedTextField(registerMobileNumber, { registerMobileNumber = it.filter(Char::isDigit).take(11) }, label = { Text("Mobile number *") }, placeholder = { Text("09XX XXX XXXX") }, singleLine = true, modifier = keyboardAware(mobileBringIntoView).fillMaxWidth(), colors = contactFieldColors, shape = RoundedCornerShape(14.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
+                OutlinedTextField(registerStreetAddress, { registerStreetAddress = it.replaceFirstChar { char -> char.uppercase() } }, label = { Text("Complete address *") }, placeholder = { Text("House no., street, barangay") }, singleLine = true, modifier = keyboardAware(streetBringIntoView).fillMaxWidth(), colors = contactFieldColors, shape = RoundedCornerShape(14.dp))
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val stackLocationFields = maxWidth < 360.dp
+                    val cityModifier = keyboardAware(cityBringIntoView)
+                    val provinceModifier = keyboardAware(provinceBringIntoView)
+                    if (stackLocationFields) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedTextField(
+                                value = registerCity,
+                                onValueChange = { registerCity = it.replaceFirstChar { char -> char.uppercase() } },
+                                placeholder = { Text("City / Municipality") },
+                                singleLine = true,
+                                modifier = cityModifier.fillMaxWidth().heightIn(min = 64.dp),
+                                colors = contactFieldColors,
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                            OutlinedTextField(
+                                value = registerProvince,
+                                onValueChange = { registerProvince = it.replaceFirstChar { char -> char.uppercase() } },
+                                placeholder = { Text("Province") },
+                                singleLine = true,
+                                modifier = provinceModifier.fillMaxWidth().heightIn(min = 64.dp),
+                                colors = contactFieldColors,
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                        }
+                    } else {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedTextField(
+                                value = registerCity,
+                                onValueChange = { registerCity = it.replaceFirstChar { char -> char.uppercase() } },
+                                placeholder = { Text("City / Municipality") },
+                                singleLine = true,
+                                modifier = cityModifier.weight(1f).heightIn(min = 64.dp),
+                                colors = contactFieldColors,
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                            OutlinedTextField(
+                                value = registerProvince,
+                                onValueChange = { registerProvince = it.replaceFirstChar { char -> char.uppercase() } },
+                                placeholder = { Text("Province") },
+                                singleLine = true,
+                                modifier = provinceModifier.weight(1f).heightIn(min = 64.dp),
+                                colors = contactFieldColors,
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(registerPostalCode, { registerPostalCode = it.filter(Char::isDigit).take(4) }, label = { Text("ZIP code *") }, placeholder = { Text("4 digits") }, singleLine = true, modifier = keyboardAware(postalBringIntoView).fillMaxWidth(), colors = contactFieldColors, shape = RoundedCornerShape(14.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                Button(onClick = { registerSubmitted = true; if (registrationValidation.errors["mobileNumber"] == null && registrationValidation.errors["streetAddress"] == null && registrationValidation.errors["postalCode"] == null) registerStep = 3 }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419)), shape = RoundedCornerShape(14.dp)) { Text("Review details", color = Color.White, fontWeight = FontWeight.Bold) }
+                TextButton(onClick = { registerStep = 1 }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Back to personal information", color = Color(0xFF9E4300), fontWeight = FontWeight.SemiBold) }
             }
             return
         }
         if (registerStep == 3) {
-            Column(modifier = modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFFFFF7EB), Color(0xFFF4EFE7)))).imePadding().verticalScroll(scrollState).padding(horizontal = 22.dp, vertical = 20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = modifier.fillMaxSize().background(Color(0xFFFFF7EB)).imePadding().verticalScroll(scrollState).padding(horizontal = 20.dp, vertical = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 AuthBrandHeader("Review your account", compact = true)
-                Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { registerStep = 2 }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFFB9B6AE)) }; Column { Text("Create account", color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Step 3 of 3 — Review details", color = Color(0xFF777777), fontSize = 12.sp) } }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = { registerStep = 2 }, modifier = Modifier.height(40.dp), contentPadding = PaddingValues(horizontal = 10.dp), border = BorderStroke(1.dp, Color(0xFFE8D8C6)), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFFFFFCF7), contentColor = Color(0xFF8F420C))) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("Back", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.width(10.dp)); Column { Text("Create account", color = Color(0xFF1C1C1E), fontSize = 18.sp, fontWeight = FontWeight.Bold); Text("Step 3 of 3 Â· Review details", color = Color(0xFF8E8E93), fontSize = 12.sp) }
+                }
                 Text("Review and submit", color = Color(0xFF202124), fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Text("${registerFirstName.trim()} ${registerLastName.trim()}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Text(registerEmail, color = Color(0xFF777777))
-                listOf("PERSONAL" to "Full name|${registerFirstName.trim()} ${registerLastName.trim()}\\nDate of birth|${registerDateOfBirth}\\nGender|${registerGender}", "CONTACT" to "Mobile|${registerMobileNumber}\\nCity|${registerCityProvince}\\nZIP|${registerPostalCode}").forEach { section -> Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFF3F3F3)), shape = RoundedCornerShape(12.dp)) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text(section.first, color = Color(0xFFF57419), fontWeight = FontWeight.Bold, fontSize = 12.sp); section.second.split("\\n").forEach { row -> val pair = row.split("|", limit = 2); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(pair[0], color = Color(0xFF777777), fontSize = 12.sp); Text(pair.getOrElse(1) { "" }, fontWeight = FontWeight.Bold, fontSize = 12.sp) } } } } }
-                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFF3F3F3)), shape = RoundedCornerShape(12.dp)) {
+                listOf("PERSONAL" to "Full name|${registerFirstName.trim()} ${registerLastName.trim()}\\nDate of birth|${registerDateOfBirth}\\nGender|${registerGender}", "CONTACT" to "Mobile|${registerMobileNumber}\\nCity|${listOf(registerCity, registerProvince).filter { it.isNotBlank() }.joinToString(", ")}\\nZIP|${registerPostalCode}").forEach { section -> Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text(section.first, color = Color(0xFFF57419), fontWeight = FontWeight.Bold, fontSize = 12.sp); section.second.split("\\n").forEach { row -> val pair = row.split("|", limit = 2); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(pair[0], color = Color(0xFF8E8E93), fontSize = 12.sp); Text(pair.getOrElse(1) { "" }, fontWeight = FontWeight.SemiBold, fontSize = 12.sp) } } } } }
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text("ACCOUNT", color = Color(0xFFF57419), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Email", color = Color(0xFF777777), fontSize = 12.sp); Text(registerEmail, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("Password", color = Color(0xFF777777), fontSize = 12.sp); Row(verticalAlignment = Alignment.CenterVertically) { Text(if (registerReviewPasswordVisible) registerPassword else "••••••••", fontWeight = FontWeight.Bold, fontSize = 12.sp); IconButton(onClick = { registerReviewPasswordVisible = !registerReviewPasswordVisible }, modifier = Modifier.size(28.dp)) { Icon(if (registerReviewPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (registerReviewPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF777777), modifier = Modifier.size(18.dp)) } } }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Password", color = Color(0xFF777777), fontSize = 12.sp); Text("Secure password set", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF347A45)) }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Terms agreed", color = Color(0xFF777777), fontSize = 12.sp); Text("Yes", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                     }
                 }
-                Button(onClick = { onRegisterUser(RegisteredUser(buildRegistrationUsername(registerFirstName, registerLastName, registerEmail, registeredUsers), registerFirstName.trim(), registerLastName.trim(), registerMiddleName.trim(), registerDateOfBirth.trim(), registerGender.trim(), registerEmail.trim(), registerMobileNumber.trim(), registerStreetAddress.trim(), registerCityProvince.trim(), registerPostalCode.trim(), registerPassword, formatCaptureTimestamp())) }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419)), shape = RoundedCornerShape(10.dp)) { Text("Create account", color = Color.White, fontWeight = FontWeight.Bold) }
+                LoadingActionButton("Create account", "Creating accountâ€¦", isAuthEmailRequestInFlight, registrationValidation.isValid) {
+                    onRegisterUser(
+                        RegisteredUser(
+                            username = buildRegistrationUsername(registerFirstName, registerLastName, registerEmail, registeredUsers),
+                            firstName = registerFirstName.trim(),
+                            lastName = registerLastName.trim(),
+                            middleName = registerMiddleName.trim(),
+                            dateOfBirth = registerDateOfBirth.trim(),
+                            gender = registerGender.trim(),
+                            email = registerEmail.trim().lowercase(Locale.US),
+                            mobileNumber = registerMobileNumber.trim(),
+                            streetAddress = registerStreetAddress.trim(),
+                            cityProvince = listOf(registerCity, registerProvince).filter { it.isNotBlank() }.joinToString(", "),
+                            postalCode = registerPostalCode.trim(),
+                            password = registerPassword,
+                            createdAt = formatCaptureTimestamp()
+                        )
+                    )
+                }
                 TextButton(onClick = { registerStep = 2 }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Back", color = Color(0xFF999999)) }
             }
             return
         }
         val registerFieldColors = OutlinedTextFieldDefaults.colors(
-            unfocusedContainerColor = Color(0xFFF3F3F3),
-            focusedContainerColor = Color(0xFFF3F3F3),
-            unfocusedBorderColor = Color(0xFFD7D7D7),
+            unfocusedContainerColor = Color(0xFFFFFCF7),
+            focusedContainerColor = Color(0xFFFFFCF7),
+            unfocusedBorderColor = Color(0xFFE8D8C6),
             focusedBorderColor = Color(0xFFF57419),
-            unfocusedTextColor = Color(0xFF222222),
-            focusedTextColor = Color(0xFF222222),
-            unfocusedPlaceholderColor = Color(0xFF999999),
-            focusedPlaceholderColor = Color(0xFF999999),
+            unfocusedTextColor = Color(0xFF25211D),
+            focusedTextColor = Color(0xFF25211D),
+            unfocusedPlaceholderColor = Color(0xFF8A8178),
+            focusedPlaceholderColor = Color(0xFF8A8178),
+            focusedLabelColor = Color(0xFFB95713),
             cursorColor = Color(0xFFF57419)
         )
         Column(
-            modifier = modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFFFFF7EB), Color(0xFFF4EFE7)))).imePadding().verticalScroll(scrollState).padding(horizontal = 22.dp, vertical = 20.dp).padding(bottom = 24.dp),
+            modifier = modifier.fillMaxSize().background(Color(0xFFFFF7EB)).imePadding().verticalScroll(scrollState).padding(horizontal = 20.dp, vertical = 16.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             AuthBrandHeader("Create your customer account", compact = true)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { onPageChange(SettingsPage.Login) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFFB9B6AE)) }
-                Column { Text("Create account", color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Fill in your details to get started", color = Color(0xFF777777), fontSize = 12.sp) }
+                OutlinedButton(
+                    onClick = { onPageChange(SettingsPage.Login) },
+                    modifier = Modifier.height(40.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE5E5EA)),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF1C1C1E))
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Back", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.width(10.dp))
+                Column { Text("Create account", color = Color(0xFF1C1C1E), fontSize = 18.sp, fontWeight = FontWeight.Bold); Text("Fill in your details to get started", color = Color(0xFF8E8E93), fontSize = 12.sp) }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 listOf("1" to "Personal", "2" to "Contact", "3" to "Account").forEachIndexed { index, item ->
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(Modifier.size(34.dp).background(if (index == 0) Color(0xFFF57419) else Color.Black, CircleShape), contentAlignment = Alignment.Center) { Text(item.first, color = Color.White, fontWeight = FontWeight.Bold) }
-                        Text(item.second, color = if (index == 0) Color(0xFFF57419) else Color(0xFF777777), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Box(Modifier.size(34.dp).background(if (index == 0) Color(0xFFF57419) else Color(0xFFE5E5EA), CircleShape), contentAlignment = Alignment.Center) { Text(item.first, color = if (index == 0) Color.White else Color(0xFF6E6E73), fontWeight = FontWeight.Bold) }
+                        Text(item.second, color = if (index == 0) Color(0xFFF57419) else Color(0xFF6E6E73), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
-            Text("Personal information", color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+            Text("Personal information", color = Color(0xFF1C1C1E), fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(registerFirstName, { registerFirstName = it.replaceFirstChar { char -> char.uppercase() } }, label = { Text("First name *") }, singleLine = true, modifier = keyboardAware(firstNameBringIntoView).weight(1f), colors = registerFieldColors, shape = RoundedCornerShape(10.dp))
-                OutlinedTextField(registerLastName, { registerLastName = it.replaceFirstChar { char -> char.uppercase() } }, label = { Text("Last name *") }, singleLine = true, modifier = keyboardAware(lastNameBringIntoView).weight(1f), colors = registerFieldColors, shape = RoundedCornerShape(10.dp))
+                OutlinedTextField(registerFirstName, { registerFirstName = it.replaceFirstChar { char -> char.uppercase() } }, label = { Text("First name *") }, singleLine = true, modifier = keyboardAware(firstNameBringIntoView).weight(1f), colors = registerFieldColors, shape = RoundedCornerShape(14.dp))
+                OutlinedTextField(registerLastName, { registerLastName = it.replaceFirstChar { char -> char.uppercase() } }, label = { Text("Last name *") }, singleLine = true, modifier = keyboardAware(lastNameBringIntoView).weight(1f), colors = registerFieldColors, shape = RoundedCornerShape(14.dp))
             }
-            OutlinedTextField(registerMiddleName, { registerMiddleName = it.replaceFirstChar { char -> char.uppercase() } }, label = { Text("Middle name (optional)") }, placeholder = { Text("Enter middle name") }, singleLine = true, modifier = keyboardAware(middleNameBringIntoView).fillMaxWidth(), colors = registerFieldColors, shape = RoundedCornerShape(10.dp))
+            OutlinedTextField(registerMiddleName, { registerMiddleName = it.replaceFirstChar { char -> char.uppercase() } }, label = { Text("Middle name (optional)") }, placeholder = { Text("Enter middle name") }, singleLine = true, modifier = keyboardAware(middleNameBringIntoView).fillMaxWidth(), colors = registerFieldColors, shape = RoundedCornerShape(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                DateOfBirthPickerField(registerDateOfBirth, { registerDateOfBirth = it }, modifier = Modifier.weight(1f), label = "Date of birth *", placeholder = "MM/DD/YYYY")
+                DateOfBirthPickerField(registerDateOfBirth, { registerDateOfBirth = it }, modifier = Modifier.weight(1f).heightIn(min = 64.dp), label = "Date of birth *", placeholder = "MM/DD/YYYY")
                 Box(modifier = Modifier.weight(1f)) {
                     OutlinedTextField(
                         value = registerGender,
@@ -10575,10 +10580,11 @@ private fun SettingsScreen(
                         placeholder = { Text("Select") },
                         singleLine = true,
                         modifier = keyboardAware(genderBringIntoView)
-                            .fillMaxWidth(),
-                        trailingIcon = { Text("⌄", color = Color(0xFF777777), fontSize = 18.sp) },
+                            .fillMaxWidth()
+                            .heightIn(min = 64.dp),
+                        trailingIcon = { Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Choose gender", tint = Color(0xFF777777)) },
                         colors = registerFieldColors,
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(14.dp)
                     )
                     Box(
                         modifier = Modifier
@@ -10589,7 +10595,7 @@ private fun SettingsScreen(
                         expanded = registerGenderMenuExpanded,
                         onDismissRequest = { registerGenderMenuExpanded = false }
                     ) {
-                        listOf("Male", "Female", "Rather not to say").forEach { option ->
+                        listOf("Male", "Female", "Prefer not to say").forEach { option ->
                             DropdownMenuItem(
                                 text = { Text(option) },
                                 onClick = {
@@ -10601,9 +10607,9 @@ private fun SettingsScreen(
                     }
                 }
             }
-            Text("Account credentials", color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 14.dp))
-            OutlinedTextField(registerEmail, { registerEmail = it }, label = { Text("Email address *") }, placeholder = { Text("name@email.com") }, singleLine = true, modifier = keyboardAware(emailBringIntoView).fillMaxWidth(), colors = registerFieldColors, shape = RoundedCornerShape(10.dp))
-            OutlinedTextField(registerMobileNumber, { registerMobileNumber = it.filter(Char::isDigit).take(11) }, label = { Text("Mobile number *") }, placeholder = { Text("09XXXXXXXXX") }, singleLine = true, modifier = keyboardAware(mobileBringIntoView).fillMaxWidth(), colors = registerFieldColors, shape = RoundedCornerShape(10.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
+            Text("Account credentials", color = Color(0xFF1C1C1E), fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
+            OutlinedTextField(registerEmail, { registerEmail = it }, label = { Text("Email address *") }, placeholder = { Text("name@email.com") }, singleLine = true, modifier = keyboardAware(emailBringIntoView).fillMaxWidth(), colors = registerFieldColors, shape = RoundedCornerShape(14.dp))
+            OutlinedTextField(registerMobileNumber, { registerMobileNumber = it.filter(Char::isDigit).take(11) }, label = { Text("Mobile number *") }, placeholder = { Text("09XXXXXXXXX") }, singleLine = true, modifier = keyboardAware(mobileBringIntoView).fillMaxWidth(), colors = registerFieldColors, shape = RoundedCornerShape(14.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
             val passwordStrength = when {
                 registerPassword.isBlank() -> 0
                 isStrongPassword(registerPassword) -> 3
@@ -10616,14 +10622,14 @@ private fun SettingsScreen(
                 1 -> Color(0xFFE04B3F)
                 else -> Color(0xFFD7D7D7)
             }
-            OutlinedTextField(registerPassword, { registerPassword = it }, label = { Text("Password *") }, singleLine = true, modifier = keyboardAware(passwordBringIntoView).fillMaxWidth(), visualTransformation = if (registerPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { registerPasswordVisible = !registerPasswordVisible }) { Icon(if (registerPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (registerPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF999999)) } }, colors = registerFieldColors, shape = RoundedCornerShape(10.dp))
+            OutlinedTextField(registerPassword, { registerPassword = it }, label = { Text("Password *") }, singleLine = true, modifier = keyboardAware(passwordBringIntoView).fillMaxWidth(), visualTransformation = if (registerPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { registerPasswordVisible = !registerPasswordVisible }) { Icon(if (registerPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (registerPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF999999)) } }, colors = registerFieldColors, shape = RoundedCornerShape(14.dp))
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(22.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(Color(0xFFE1E1E1))
+                        .background(Color(0xFFF0E4D6))
                 ) {
                     if (passwordStrength > 0) {
                         Box(
@@ -10638,7 +10644,7 @@ private fun SettingsScreen(
                             3 -> "Strong password"
                             2 -> "Medium password"
                             1 -> "Weak password"
-                            else -> "Strong — add a special character to max strength"
+                            else -> "Strong â€” add a special character to max strength"
                         },
                         color = if (passwordStrength == 3) Color.White else Color(0xFF555555),
                         fontSize = 10.sp,
@@ -10647,7 +10653,7 @@ private fun SettingsScreen(
                     )
                 }
             }
-            OutlinedTextField(registerConfirmPassword, { registerConfirmPassword = it }, label = { Text("Confirm password *") }, singleLine = true, modifier = keyboardAware(confirmPasswordBringIntoView).fillMaxWidth(), visualTransformation = if (registerConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { registerConfirmPasswordVisible = !registerConfirmPasswordVisible }) { Icon(if (registerConfirmPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (registerConfirmPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF999999)) } }, colors = registerFieldColors, shape = RoundedCornerShape(10.dp))
+            OutlinedTextField(registerConfirmPassword, { registerConfirmPassword = it }, label = { Text("Confirm password *") }, singleLine = true, modifier = keyboardAware(confirmPasswordBringIntoView).fillMaxWidth(), visualTransformation = if (registerConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { registerConfirmPasswordVisible = !registerConfirmPasswordVisible }) { Icon(if (registerConfirmPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (registerConfirmPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF999999)) } }, colors = registerFieldColors, shape = RoundedCornerShape(14.dp))
             if (registerSubmitted && registrationValidation.errors.isNotEmpty()) Text(registrationValidation.errors.values.first(), color = Color(0xFFC62828), fontSize = 12.sp)
             Row(verticalAlignment = Alignment.Top) {
                 Checkbox(checked = acceptTerms && acceptPrivacy, onCheckedChange = { acceptTerms = it; acceptPrivacy = it })
@@ -10658,6 +10664,7 @@ private fun SettingsScreen(
                     registerSubmitted = true
                     if (registrationValidation.errors["firstName"] == null &&
                         registrationValidation.errors["lastName"] == null &&
+                        registrationValidation.errors["middleName"] == null &&
                         registrationValidation.errors["dateOfBirth"] == null &&
                         registrationValidation.errors["gender"] == null &&
                         registrationValidation.errors["email"] == null &&
@@ -10669,8 +10676,8 @@ private fun SettingsScreen(
                 },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419)),
-                shape = RoundedCornerShape(10.dp)
-            ) { Text("Next — contact info", color = Color.White, fontWeight = FontWeight.Bold) }
+                shape = RoundedCornerShape(14.dp)
+            ) { Text("Next â€” contact info", color = Color.White, fontWeight = FontWeight.Bold) }
             TextButton(onClick = { onPageChange(SettingsPage.Login) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Already have an account? ", color = Color(0xFF777777)); Text("Sign in", color = Color(0xFFF57419), fontWeight = FontWeight.Bold) }
         }
         return
@@ -10690,35 +10697,37 @@ private fun SettingsScreen(
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onPageChange(SettingsPage.ProfileDetails) }
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 20.dp, vertical = 18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Box(
-                        modifier = Modifier.size(60.dp).background(Color(0xFFF57419), CircleShape),
+                        modifier = Modifier.size(64.dp).background(Color(0xFFF57419), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(settingsAvatarLabel, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
                     }
                     Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
-                        Text(signInName.ifBlank { "Your account" }, color = Color(0xFF202124), fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
-                        Text(signInEmail.ifBlank { "your@email.com" }, color = Color(0xFFAAAAAA), fontSize = 13.sp)
-                        Text(
-                            "✓ Verified account",
-                            color = Color(0xFF4F7C26),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
+                        Text(signInName.ifBlank { "Your account" }, color = Color(0xFF202124), fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+                        Text(signInEmail.ifBlank { "your@email.com" }, color = Color(0xFF667085), fontSize = 13.sp, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier
                                 .background(Color(0xFFEAF7D8), RoundedCornerShape(50))
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
+                        ) {
+                            Icon(Icons.Outlined.Check, contentDescription = null, tint = Color(0xFF4F7C26), modifier = Modifier.size(14.dp))
+                            Text("Verified account", color = Color(0xFF4F7C26), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }
@@ -10794,45 +10803,49 @@ private fun SettingsScreen(
             Column(
                 modifier = modifier
                     .fillMaxSize()
-                    .background(Color(0xFFF7F2EC))
+                    .background(Color(0xFFFFF7EB))
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 34.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Text("AR Panels", color = Color(0xFF898681), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { onPageChange(SettingsPage.Home) }) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFFB9B6AE))
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFF344054))
                     }
                     Column {
-                        Text("Profile details", color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("Update your info", color = Color(0xFF777777), fontSize = 12.sp)
+                        Text("Profile details", color = Color(0xFF202124), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                        Text("Keep your account information up to date", color = Color(0xFF667085), fontSize = 13.sp)
                     }
                 }
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(
-                            Modifier.size(56.dp).background(Color(0xFFF57419), CircleShape),
+                            Modifier.padding(top = 18.dp).size(64.dp).background(Color(0xFFF57419), CircleShape),
                             contentAlignment = Alignment.Center
                         ) { Text(settingsAvatarLabel, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold) }
-                        Text("Change photo", color = Color(0xFFF57419), fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                        Text(signInName.ifBlank { "Your profile" }, color = Color(0xFF202124), fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 23.sp, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(top = 10.dp))
+                        Text(signInEmail, color = Color(0xFF667085), fontSize = 13.sp, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 18.dp))
                     }
                 }
                 val profileFieldColors = OutlinedTextFieldDefaults.colors(
-                    unfocusedContainerColor = Color(0xFFF7F6F5),
-                    focusedContainerColor = Color(0xFFF7F6F5),
-                    unfocusedBorderColor = Color(0xFFD9D7D5),
+                    unfocusedContainerColor = Color(0xFFFFFCF7),
+                    focusedContainerColor = Color(0xFFFFFCF7),
+                    unfocusedBorderColor = Color(0xFFE8D8C6),
                     focusedBorderColor = Color(0xFFF57419),
+                    unfocusedTextColor = Color(0xFF25211D),
+                    focusedTextColor = Color(0xFF25211D),
+                    unfocusedPlaceholderColor = Color(0xFF8A8178),
+                    focusedPlaceholderColor = Color(0xFF8A8178),
+                    focusedLabelColor = Color(0xFFB95713),
                     cursorColor = Color(0xFFF57419)
                 )
-                OutlinedTextField(profileFirstDraft, { profileFirstDraft = it }, label = { Text("First name") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), colors = profileFieldColors)
-                OutlinedTextField(profileLastDraft, { profileLastDraft = it }, label = { Text("Last name") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), colors = profileFieldColors)
-                OutlinedTextField(profileMiddleDraft, { profileMiddleDraft = it }, label = { Text("Middle name") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), colors = profileFieldColors)
-                OutlinedTextField(profileDobDraft, { profileDobDraft = it }, label = { Text("Date of birth") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), colors = profileFieldColors)
-                OutlinedTextField(profileGenderDraft, { profileGenderDraft = it }, label = { Text("Gender") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), colors = profileFieldColors)
-                OutlinedTextField(profileMobileDraft, { profileMobileDraft = it }, label = { Text("Mobile number") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), colors = profileFieldColors)
+                Text("PERSONAL INFORMATION", color = Color(0xFF9E4300), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                OutlinedTextField(profileFirstDraft, { profileFirstDraft = it }, label = { Text("First name") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = profileFieldColors)
+                OutlinedTextField(profileLastDraft, { profileLastDraft = it }, label = { Text("Last name") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = profileFieldColors)
+                OutlinedTextField(profileMiddleDraft, { profileMiddleDraft = it }, label = { Text("Middle name") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = profileFieldColors)
+                OutlinedTextField(profileDobDraft, { profileDobDraft = it }, label = { Text("Date of birth") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = profileFieldColors)
+                OutlinedTextField(profileGenderDraft, { profileGenderDraft = it }, label = { Text("Gender") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = profileFieldColors)
+                OutlinedTextField(profileMobileDraft, { profileMobileDraft = it }, label = { Text("Mobile number") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = profileFieldColors)
                 Button(
                     onClick = {
                         onSaveProfile(profileUsernameDraft, profileFirstDraft, profileMiddleDraft, profileLastDraft, profileDobDraft, profileMobileDraft, profileStreetDraft, profileCityDraft, profilePostalDraft)
@@ -10846,66 +10859,213 @@ private fun SettingsScreen(
             return
         }
         if (page == SettingsPage.Password) {
+            val passwordRules = listOf(
+                "At least 8 characters" to (passwordDraft.length >= 8),
+                "An uppercase letter" to passwordDraft.any(Char::isUpperCase),
+                "A lowercase letter" to passwordDraft.any(Char::isLowerCase),
+                "A number" to passwordDraft.any(Char::isDigit),
+                "A special character" to passwordDraft.any { !it.isLetterOrDigit() }
+            )
+            val passwordIsStrong = passwordRules.all { it.second }
+            val passwordsMatch = confirmPasswordDraft.isNotEmpty() && passwordDraft == confirmPasswordDraft
             Column(
-                modifier = modifier.fillMaxSize().background(Color.White).padding(horizontal = 22.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = modifier.fillMaxSize()
+                    .background(Color(0xFFFFF7EB))
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { onPageChange(SettingsPage.Home) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFFB9B6AE)) }
-                    Column { Text("Change password", color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Keep your account secure", color = Color(0xFF777777), fontSize = 12.sp) }
+                    IconButton(onClick = { onPageChange(SettingsPage.Home) }) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFF344054))
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Password", color = Color(0xFF202124), fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
+                        Text("Update your sign-in security", color = Color(0xFF667085), fontSize = 13.sp)
+                    }
                 }
-                OutlinedTextField(currentPasswordDraft, { currentPasswordDraft = it }, label = { Text("Current password") }, singleLine = true, modifier = Modifier.fillMaxWidth(), visualTransformation = if (profileCurrentPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { profileCurrentPasswordVisible = !profileCurrentPasswordVisible }) { Icon(if (profileCurrentPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (profileCurrentPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF777777)) } })
-                OutlinedTextField(
-                    passwordDraft,
-                    { passwordDraft = it },
-                    label = { Text("New password") },
-                    singleLine = true,
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    visualTransformation = if (profilePasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { profilePasswordVisible = !profilePasswordVisible }) {
-                            Icon(
-                                imageVector = if (profilePasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                contentDescription = if (profilePasswordVisible) "Hide password" else "Show password",
-                                tint = Color(0xFF777777),
-                                modifier = Modifier.size(24.dp)
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Change password", color = Color(0xFF202124), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text("Choose a strong password you have not used before.", color = Color(0xFF667085), fontSize = 13.sp, lineHeight = 19.sp)
+                        }
+                        val passwordFieldColors = OutlinedTextFieldDefaults.colors(
+                            unfocusedContainerColor = Color(0xFFFFFCF7),
+                            focusedContainerColor = Color(0xFFFFFCF7),
+                            unfocusedBorderColor = Color(0xFFE8D8C6),
+                            focusedBorderColor = Color(0xFFF57419),
+                            unfocusedTextColor = Color(0xFF25211D),
+                            focusedTextColor = Color(0xFF25211D),
+                            focusedLabelColor = Color(0xFFB95713),
+                            cursorColor = Color(0xFFF57419)
+                        )
+                        OutlinedTextField(
+                            value = currentPasswordDraft,
+                            onValueChange = { currentPasswordDraft = it },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
+                            label = { Text("Current password") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = passwordFieldColors,
+                            visualTransformation = if (profileCurrentPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { profileCurrentPasswordVisible = !profileCurrentPasswordVisible }) {
+                                    Icon(if (profileCurrentPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (profileCurrentPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF667085))
+                                }
+                            },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next)
+                        )
+                        OutlinedTextField(
+                            value = passwordDraft,
+                            onValueChange = { passwordDraft = it },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp).onFocusChanged { profileNewPasswordFocused = it.isFocused },
+                            label = { Text("New password") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = passwordFieldColors,
+                            visualTransformation = if (profilePasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { profilePasswordVisible = !profilePasswordVisible }) {
+                                    Icon(if (profilePasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (profilePasswordVisible) "Hide password" else "Show password", tint = Color(0xFF667085))
+                                }
+                            },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next)
+                        )
+                        AnimatedVisibility(visible = !passwordIsStrong && (profileNewPasswordFocused || passwordDraft.isNotEmpty())) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8F1)),
+                                border = BorderStroke(1.dp, Color(0xFFFFE0C2))
+                            ) {
+                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                                    Text("Password requirements", color = Color(0xFF344054), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    passwordRules.forEach { (rule, satisfied) ->
+                                        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = if (satisfied) Icons.Outlined.Check else Icons.Outlined.RadioButtonUnchecked,
+                                                contentDescription = if (satisfied) "Requirement met" else "Requirement not met",
+                                                tint = if (satisfied) Color(0xFF16834A) else Color(0xFF98A2B3),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(rule, color = if (satisfied) Color(0xFF16834A) else Color(0xFF667085), fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = confirmPasswordDraft,
+                            onValueChange = { confirmPasswordDraft = it },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
+                            label = { Text("Confirm new password") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = passwordFieldColors,
+                            isError = confirmPasswordDraft.isNotEmpty() && !passwordsMatch,
+                            visualTransformation = if (profileConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { profileConfirmPasswordVisible = !profileConfirmPasswordVisible }) {
+                                    Icon(if (profileConfirmPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (profileConfirmPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF667085))
+                                }
+                            },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done)
+                        )
+                        AnimatedVisibility(visible = confirmPasswordDraft.isNotEmpty()) {
+                            Text(
+                                if (passwordsMatch) "Passwords match" else "Passwords do not match yet.",
+                                color = if (passwordsMatch) Color(0xFF16834A) else Color(0xFFB42318),
+                                fontSize = 12.sp
                             )
                         }
+                        Button(
+                            onClick = { onChangePassword(currentPasswordDraft, passwordDraft) },
+                            enabled = currentPasswordDraft.isNotBlank() && passwordIsStrong && passwordsMatch && !isAuthEmailRequestInFlight,
+                            modifier = Modifier.fillMaxWidth().height(54.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419), disabledContainerColor = Color(0xFFF4B183)),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            if (isAuthEmailRequestInFlight) {
+                                CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                                Spacer(Modifier.width(10.dp))
+                            }
+                            Text(if (isAuthEmailRequestInFlight) "Updating passwordâ€¦" else "Update password", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
                     }
-                )
-                OutlinedTextField(confirmPasswordDraft, { confirmPasswordDraft = it }, label = { Text("Confirm new password") }, singleLine = true, modifier = Modifier.fillMaxWidth(), visualTransformation = if (profileConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { profileConfirmPasswordVisible = !profileConfirmPasswordVisible }) { Icon(if (profileConfirmPasswordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (profileConfirmPasswordVisible) "Hide password" else "Show password", tint = Color(0xFF777777)) } })
-                Text("Must be at least 8 characters with uppercase, lowercase, number, and special character.", color = Color(0xFF999999), fontSize = 12.sp)
-                Button(onClick = {
-                    if (passwordDraft.isNotBlank() && passwordDraft == confirmPasswordDraft) onChangePassword(passwordDraft)
-                    currentPasswordDraft = ""
-                    passwordDraft = ""
-                    confirmPasswordDraft = ""
-                    onPageChange(SettingsPage.Home)
-                }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57419)), shape = RoundedCornerShape(12.dp)) { Text("Update password", color = Color.White, fontWeight = FontWeight.Bold) }
-                OutlinedButton(onClick = { onPageChange(SettingsPage.Login) }, modifier = Modifier.fillMaxWidth()) { Text("Forgot password?") }
+                }
+                OutlinedButton(
+                    onClick = {
+                        loginIdentifier = signInEmail
+                        onSignOut()
+                        onPageChange(SettingsPage.ForgotPassword)
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE6D7C8)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF9E4300))
+                ) { Text("Forgot password?") }
             }
             return
         }
         if (page == SettingsPage.Notifications) {
-            Column(modifier = modifier.fillMaxSize().background(Color.White).padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = modifier.fillMaxSize().background(Color(0xFFFFF7EB)).padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { onPageChange(SettingsPage.Home) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFFB9B6AE)) }
-                    Column { Text("Notifications", color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Manage your alerts", color = Color(0xFF777777), fontSize = 12.sp) }
+                    IconButton(onClick = { onPageChange(SettingsPage.Home) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFF344054)) }
+                    Column { Text("Notifications", color = Color(0xFF202124), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold); Text("Choose the updates you want to receive", color = Color(0xFF667085), fontSize = 13.sp) }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("Quotation alerts"); Switch(quotationAlertsEnabled, { quotationAlertsEnabled = it }) }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("Panel and catalog alerts"); Switch(panelAlertsEnabled, { panelAlertsEnabled = it }) }
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Column {
+                        Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.ReceiptLong, contentDescription = null, tint = Color(0xFFF57419), modifier = Modifier.size(24.dp))
+                            Column(Modifier.weight(1f)) { Text("Quotation updates", color = Color(0xFF202124), fontWeight = FontWeight.Bold); Text("Status changes and customer confirmations", color = Color(0xFF667085), fontSize = 12.sp) }
+                            Switch(quotationAlertsEnabled, onQuotationAlertsChange)
+                        }
+                        Divider(color = Color(0xFFF1EEE9))
+                        Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.BookmarkBorder, contentDescription = null, tint = Color(0xFF5B8F2B), modifier = Modifier.size(24.dp))
+                            Column(Modifier.weight(1f)) { Text("Panel and catalog alerts", color = Color(0xFF202124), fontWeight = FontWeight.Bold); Text("Updates about your saved panel designs", color = Color(0xFF667085), fontSize = 12.sp) }
+                            Switch(panelAlertsEnabled, onPanelAlertsChange)
+                        }
+                    }
+                }
             }
             return
         }
         if (page == SettingsPage.Quotations) {
-            Column(modifier = modifier.fillMaxSize().background(Color.White).verticalScroll(rememberScrollState()).padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = modifier.fillMaxSize().background(Color(0xFFFFF7EB)).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { onPageChange(SettingsPage.Home) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFFB9B6AE)) }
-                    Column { Text("Quotation history", color = Color(0xFF202124), fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("Quotations are reviewed during checkout", color = Color(0xFF777777), fontSize = 12.sp) }
+                    IconButton(onClick = { onPageChange(SettingsPage.Home) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFF344054)) }
+                    Column { Text("My quotations", color = Color(0xFF202124), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold); Text("Your recent estimates and order updates", color = Color(0xFF667085), fontSize = 13.sp) }
                 }
-                if (recentQuoteHistory.isEmpty()) Text("No quotations yet.") else recentQuoteHistory.forEach { quote ->
-                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFFAF9F7))) {
-                        Column(Modifier.padding(14.dp)) { Text(quote.quoteNumber, fontWeight = FontWeight.Bold); Text(quote.summary); Text("${quote.amount} • ${quote.status}", color = Color(0xFFF57419), fontWeight = FontWeight.SemiBold) }
+                if (recentQuoteHistory.isEmpty()) {
+                    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                        Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Outlined.ReceiptLong, contentDescription = null, tint = Color(0xFFF1A66F), modifier = Modifier.size(38.dp))
+                            Text("No quotations yet", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color(0xFF202124))
+                            Text("Your quotations and updates will appear here.", color = Color(0xFF667085), textAlign = TextAlign.Center)
+                        }
+                    }
+                } else recentQuoteHistory.forEach { quote ->
+                    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(quote.quoteNumber, fontWeight = FontWeight.ExtraBold, color = Color(0xFF202124), modifier = Modifier.weight(1f))
+                                Text(quote.status, color = Color(0xFF9E4300), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.background(Color(0xFFFFE8D1), RoundedCornerShape(999.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
+                            }
+                            Text(quote.summary.ifBlank { "Quotation details" }, color = Color(0xFF667085), fontSize = 13.sp)
+                            Divider(color = Color(0xFFF1EEE9))
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(quote.createdAt.take(10).ifBlank { "Date unavailable" }, color = Color(0xFF667085), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                Text(quote.amount, color = Color(0xFF202124), fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                            }
+                        }
                     }
                 }
             }
@@ -10992,7 +11152,7 @@ private fun SettingsScreen(
                 onDismissRequest = { showSecurityEditor = false },
                 confirmButton = {
                     TextButton(onClick = {
-                        if (passwordDraft.isNotBlank()) onChangePassword(passwordDraft)
+                        if (isStrongPassword(passwordDraft)) onChangePassword(currentPasswordDraft, passwordDraft)
                         passwordDraft = ""
                         showSecurityEditor = false
                     }) { Text("Save password") }
@@ -11018,7 +11178,7 @@ private fun SettingsScreen(
                                 Text("Quotation alerts")
                                 Text("Status changes and approvals", style = MaterialTheme.typography.bodySmall)
                             }
-                            Switch(checked = quotationAlertsEnabled, onCheckedChange = { quotationAlertsEnabled = it })
+                            Switch(checked = quotationAlertsEnabled, onCheckedChange = onQuotationAlertsChange)
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -11027,9 +11187,9 @@ private fun SettingsScreen(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text("Panel and catalog alerts")
-                                Text("New arrivals and promotions", style = MaterialTheme.typography.bodySmall)
+                                Text("Updates about your saved panel designs", style = MaterialTheme.typography.bodySmall)
                             }
-                            Switch(checked = panelAlertsEnabled, onCheckedChange = { panelAlertsEnabled = it })
+                            Switch(checked = panelAlertsEnabled, onCheckedChange = onPanelAlertsChange)
                         }
                     }
                 }
@@ -11052,7 +11212,7 @@ private fun SettingsScreen(
                                 Column {
                                     Text(quote.quoteNumber.ifBlank { "Quotation" }, fontWeight = FontWeight.SemiBold)
                                     Text(quote.summary.ifBlank { "Saved quotation" }, style = MaterialTheme.typography.bodySmall)
-                                    Text("${quote.amount} • ${quote.status}", style = MaterialTheme.typography.bodySmall)
+                                    Text("${quote.amount} â€¢ ${quote.status}", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
@@ -11095,7 +11255,7 @@ private fun DateOfBirthPickerField(
     placeholder: String = "YYYY-MM-DD",
     supportingText: String? = null
 ) {
-    var openPicker by rememberSaveable(value) { mutableStateOf(false) }
+    var openPicker by rememberSaveable { mutableStateOf(false) }
     val pickerState = rememberDatePickerState(initialSelectedDateMillis = parseIsoDateMillis(value))
 
     if (openPicker) {
@@ -11123,34 +11283,34 @@ private fun DateOfBirthPickerField(
         }
     }
 
-    OutlinedTextField(
-        value = value,
-        onValueChange = { },
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { openPicker = true },
-        shape = RoundedCornerShape(12.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            unfocusedContainerColor = Color.White,
-            focusedContainerColor = Color.White,
-            unfocusedBorderColor = Color(0xFFE7DDD1),
-            focusedBorderColor = Color(0xFFF77F2C),
-            cursorColor = Color(0xFFF77F2C)
-        ),
-        label = { Text(label) },
-        placeholder = { Text(placeholder) },
-        leadingIcon = { Icon(Icons.Outlined.CalendarMonth, contentDescription = null) },
-        trailingIcon = {
-            IconButton(onClick = { openPicker = true }) {
-                Icon(Icons.Outlined.CalendarMonth, contentDescription = null)
+    Box(modifier = modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = formatDisplayDateOfBirth(value),
+            onValueChange = { },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = Color(0xFFFFFCF7),
+                focusedContainerColor = Color(0xFFFFFCF7),
+                unfocusedBorderColor = Color(0xFFE8D8C6),
+                focusedBorderColor = Color(0xFFF57419),
+                cursorColor = Color(0xFFF57419)
+            ),
+            label = { Text(label, maxLines = 1, softWrap = false, fontSize = 11.sp) },
+            placeholder = { Text(placeholder, maxLines = 1, softWrap = false, fontSize = 11.sp) },
+            trailingIcon = { Icon(Icons.Outlined.CalendarMonth, contentDescription = null, tint = Color(0xFF8E8E93)) },
+            readOnly = true,
+            singleLine = true,
+            supportingText = supportingText?.let { text ->
+                { Text(text, color = Color(0xFF667085), fontSize = 11.sp) }
             }
-        },
-        readOnly = true,
-        singleLine = true,
-        supportingText = supportingText?.let { text ->
-            { Text(text, color = Color(0xFF667085), fontSize = 11.sp) }
-        }
-    )
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clickable { openPicker = true }
+        )
+    }
 }
 
 @Composable
@@ -11169,10 +11329,13 @@ private fun MenuScreen(
     paymentStatusMessage: String,
     recentQuoteHistory: List<QuoteHistoryEntry>,
     customerOrderUpdates: List<CustomerOrderUpdate>,
+    onClose: () -> Unit,
     onOpenSettings: () -> Unit,
+    onResumeQuotation: (QuoteHistoryEntry) -> Unit,
+    onEditQuotation: (QuoteHistoryEntry) -> Unit,
+    onDeleteQuotation: suspend (QuoteHistoryEntry) -> Boolean,
     onOpenPayment: () -> Unit,
     onOpenOrderUpdates: () -> Unit,
-    onTrackOrder: (CustomerOrderUpdate) -> Unit,
     onOpenCatalog: () -> Unit,
     onOpenHome: () -> Unit
 ) {
@@ -11193,9 +11356,13 @@ private fun MenuScreen(
     // recentQuoteHistory is already scoped to the signed-in customer when it
     // is loaded from the backend. Comparing an email with the display name
     // here incorrectly hid valid quotes from the mobile menu.
-    val filteredRecentQuotes = remember(recentQuoteHistory) {
-        recentQuoteHistory.take(10)
+    val unfinishedQuotes = remember(recentQuoteHistory) {
+        recentQuoteHistory.filter { it.isUnfinished }.take(1)
     }
+    var quotationToDelete by remember { mutableStateOf<QuoteHistoryEntry?>(null) }
+    var isDeletingQuotation by remember { mutableStateOf(false) }
+    var deleteQuotationError by remember { mutableStateOf("") }
+    val quotationActionScope = rememberCoroutineScope()
     var showCompletedOrders by rememberSaveable { mutableStateOf(false) }
     val visibleOrders = remember(customerOrderUpdates, showCompletedOrders) {
         customerOrderUpdates.filter { order ->
@@ -11212,11 +11379,12 @@ private fun MenuScreen(
                     listOf(Color(0xFFFFF7EB), Color(0xFFF4EFE7))
                 )
             )
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Card(
-            shape = RoundedCornerShape(30.dp),
+            shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = Color.Transparent),
             modifier = Modifier
                 .fillMaxWidth()
@@ -11232,15 +11400,31 @@ private fun MenuScreen(
                         Brush.linearGradient(
                             listOf(Color(0xFFFFFFFF), Color(0xFFF8F1E8))
                         ),
-                        RoundedCornerShape(30.dp)
+                    RoundedCornerShape(22.dp)
                     )
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
-                    Text("Welcome back", color = Color(0xFF667085), fontSize = 13.sp)
-                    Text(signInName.ifBlank { "Aiyige" }, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, color = Color(0xFF121826))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("CUSTOMER ACCOUNT", color = Color(0xFFF77F2C), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Text("Welcome back", color = Color(0xFF667085), fontSize = 13.sp)
+                        }
+                        IconButton(onClick = onClose) {
+                            Icon(Icons.Outlined.Close, contentDescription = "Close account overview", tint = Color(0xFF667085))
+                        }
+                    }
+                    Text(
+                        signInName.ifBlank { "Aiyige" },
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 18.sp,
+                        lineHeight = 23.sp,
+                        color = Color(0xFF121826),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     StatsRow(
                         requestCount = recentQuoteHistory.size,
                         latestQuoteAmount = latestQuoteAmount,
@@ -11253,10 +11437,10 @@ private fun MenuScreen(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("My Orders", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = Color(0xFFF77F2C))
-                TextButton(onClick = onOpenOrderUpdates) { Text("See all →", color = Color(0xFF667085), fontSize = 12.sp) }
+                TextButton(onClick = onOpenOrderUpdates) { Text("See all", color = Color(0xFF667085), fontSize = 12.sp) }
             }
             Row(
-                modifier = Modifier.fillMaxWidth().background(Color(0xFFF4EFE7), RoundedCornerShape(12.dp)).padding(3.dp),
+                modifier = Modifier.fillMaxWidth().background(Color(0xFFF4EFE7), RoundedCornerShape(14.dp)).padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Button(
@@ -11276,61 +11460,102 @@ private fun MenuScreen(
             }
             if (visibleOrders.isEmpty()) {
                 Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFDF7F0)), shape = RoundedCornerShape(20.dp)) {
-                    Text(if (showCompletedOrders) "No completed orders yet." else "No active orders yet.", modifier = Modifier.padding(18.dp), color = Color(0xFF667085), fontSize = 13.sp)
+                    Text(if (showCompletedOrders) "No completed orders yet." else "No active orders yet.", modifier = Modifier.fillMaxWidth().padding(22.dp), color = Color(0xFF667085), fontSize = 14.sp, textAlign = TextAlign.Center)
                 }
             } else {
                 visibleOrders.forEach { order ->
-                    MenuOrderCard(order = order, onTrackOrder = { onTrackOrder(order) })
+                    MenuOrderCard(order = order)
                 }
             }
         }
 
         Card(
-            shape = RoundedCornerShape(26.dp),
+            shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFFFDF7F0)),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text("Quotation history", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, color = Color(0xFFF77F2C))
-                if (filteredRecentQuotes.isEmpty()) {
-                    Text("No quotes yet.", color = Color(0xFF667085), fontSize = 13.sp)
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Unfinished quotation", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = Color(0xFFF77F2C))
+                if (unfinishedQuotes.isEmpty()) {
+                    Text("No unfinished quotations.", color = Color(0xFF667085), fontSize = 12.sp)
                 } else {
-                    filteredRecentQuotes.forEach { quote ->
-                        val displayStatus = quote.status.ifBlank { "Quotation ready" }
-                        Card(
-                            shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF))
+                    unfinishedQuotes.forEach { quote ->
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(Color.White, RoundedCornerShape(14.dp))
+                                .clickable(enabled = !isDeletingQuotation) { onResumeQuotation(quote) }
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(quote.quoteNumber.ifBlank { "Quote" }, color = Color(0xFF121826), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(
-                                    displayStatus,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    color = Color(0xFFF77F2C),
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 11.sp,
-                                    lineHeight = 14.sp,
-                                    textAlign = TextAlign.End,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(quote.summary.ifBlank { "Saved quote." }, color = Color(0xFF667085), fontSize = 13.sp)
-                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                                    Text(quote.createdAt.ifBlank { "Recently" }, color = Color(0xFF667085), fontSize = 12.sp)
-                                    Text(quote.amount.ifBlank { "--" }, color = Color(0xFF121826), fontWeight = FontWeight.Bold)
-                                }
+                            Text(quote.quoteNumber, color = Color(0xFF121826), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(quote.summary.ifBlank { "Customer quotation" }, color = Color(0xFF667085), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(quote.amount, color = Color(0xFF121826), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Tap to continue checkout", color = Color(0xFF667085), fontSize = 10.sp)
+                            Button(
+                                onClick = { onResumeQuotation(quote) },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !isDeletingQuotation,
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF77F2C))
+                            ) { Text("Continue", fontSize = 12.sp, maxLines = 1) }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(
+                                    onClick = { onEditQuotation(quote) },
+                                    enabled = !isDeletingQuotation,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                ) { Text("Edit items", fontSize = 10.sp, maxLines = 1) }
+                                OutlinedButton(
+                                    onClick = { deleteQuotationError = ""; quotationToDelete = quote },
+                                    enabled = !isDeletingQuotation,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB42318))
+                                ) { Text("Delete", fontSize = 10.sp, maxLines = 1) }
                             }
                         }
                     }
                 }
+                TextButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                    Text("My quotations history", fontSize = 11.sp, maxLines = 2, textAlign = TextAlign.Center)
+                }
             }
         }
+
+    quotationToDelete?.let { quote ->
+        AlertDialog(
+            onDismissRequest = { if (!isDeletingQuotation) quotationToDelete = null },
+            title = { Text("Delete unfinished quotation?") },
+            text = {
+                when {
+                    isDeletingQuotation -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color(0xFFF77F2C), strokeWidth = 2.dp)
+                        Text("Deleting ${quote.quoteNumber}â€¦")
+                    }
+                    deleteQuotationError.isNotBlank() -> Text(deleteQuotationError, color = Color(0xFFB42318))
+                    else -> Text("This removes the unfinished quotation and its notification from your account. This cannot be undone.")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isDeletingQuotation,
+                    onClick = {
+                        isDeletingQuotation = true
+                        quotationActionScope.launch {
+                            val deleted = runCatching { onDeleteQuotation(quote) }.getOrDefault(false)
+                            isDeletingQuotation = false
+                            if (deleted) quotationToDelete = null
+                            else deleteQuotationError = "The quotation could not be deleted. Check your connection and try again."
+                        }
+                    }
+                ) { Text(if (isDeletingQuotation) "Please waitâ€¦" else "Delete quotation") }
+            },
+            dismissButton = {
+                TextButton(enabled = !isDeletingQuotation, onClick = { quotationToDelete = null }) { Text("Keep it") }
+            }
+        )
+    }
         }
     }
 
@@ -11341,81 +11566,7 @@ private fun displayDeliveryStatus(status: String): String = when (status.trim().
 }
 
 @Composable
-private fun OrderTrackingScreen(
-    modifier: Modifier = Modifier,
-    order: CustomerOrderUpdate,
-    onBack: () -> Unit
-) {
-    val completed = order.deliveryStatus.equals("Delivered", true) || order.deliveryStatus.equals("Completed", true)
-    val paymentPending = !order.paymentStatus.trim().lowercase().let { it in listOf("paid", "completed", "settled") }
-    val statusColor = if (completed) Color(0xFF18794E) else Color(0xFFF77F2C)
-    Column(
-        modifier = modifier.background(Color(0xFFFFF7EB)).verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Color(0xFF121826))
-            }
-            Text("Track order", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF121826))
-        }
-        Text("Delivery progress", color = Color(0xFFF77F2C), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(24.dp)) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(order.invoice, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = Color(0xFF121826))
-                    Text(if (paymentPending) "Awaiting payment" else displayDeliveryStatus(order.deliveryStatus), color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-                Text(order.products.ifBlank { "Panel order" }, color = Color(0xFF667085))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    val completedStages = when {
-                        paymentPending -> 0
-                        completed -> 4
-                        order.deliveryStatus.equals("Shipped", true) -> 3
-                        else -> 2
-                    }
-                    repeat(4) { index ->
-                        Box(Modifier.weight(1f).height(5.dp).background(if (index < completedStages) Color(0xFFF77F2C) else Color(0xFFE4DED6), RoundedCornerShape(99.dp)))
-                    }
-                }
-                Text(
-                    when {
-                        paymentPending -> "Your order will enter preparation after payment has been received and confirmed."
-                        completed -> "Your order has been delivered."
-                        order.deliveryStatus.equals("Shipped", true) -> "Your order has been handed to ${order.courier.ifBlank { "the selected courier" }}."
-                        order.deliveryStatus.equals("Preparing", true) -> "Your order is being prepared for the selected courier."
-                        else -> "Your order is being prepared."
-                    },
-                    color = Color(0xFF344054),
-                    fontSize = 13.sp
-                )
-            }
-        }
-        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFDF7F0)), shape = RoundedCornerShape(22.dp)) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Delivery details", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color(0xFF121826))
-                TrackingDetailRow("Courier", order.courier.ifBlank { "Not selected" })
-                TrackingDetailRow("Tracking reference", order.trackingNumber.ifBlank { "Not provided yet" })
-                TrackingDetailRow("Last updated", order.updatedAt.ifBlank { "Recently" })
-                TrackingDetailRow("Order total", formatPeso(order.amount))
-            }
-        }
-    }
-}
-
-@Composable
-private fun TrackingDetailRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = Color(0xFF667085), fontSize = 12.sp)
-        Text(value, color = Color(0xFF121826), fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
-    }
-}
-
-@Composable
-private fun MenuOrderCard(
-    order: CustomerOrderUpdate,
-    onTrackOrder: () -> Unit
-) {
+private fun MenuOrderCard(order: CustomerOrderUpdate) {
     val isCompleted = order.deliveryStatus.equals("Delivered", true) || order.deliveryStatus.equals("Completed", true)
     val statusColor = if (isCompleted) Color(0xFF18794E) else Color(0xFFF77F2C)
     Card(
@@ -11435,16 +11586,11 @@ private fun MenuOrderCard(
                 }
             }
             if (order.courier.isNotBlank() || order.trackingNumber.isNotBlank()) {
-                Text(listOf(order.courier, order.trackingNumber).filter { it.isNotBlank() }.joinToString(" · "), color = Color(0xFF667085), fontSize = 11.sp)
+                Text(listOf(order.courier, order.trackingNumber).filter { it.isNotBlank() }.joinToString(" Â· "), color = Color(0xFF667085), fontSize = 11.sp)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(order.updatedAt.ifBlank { "Recently updated" }, color = Color(0xFF667085), fontSize = 11.sp)
                 Text(formatPeso(order.amount), color = Color(0xFF121826), fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onTrackOrder, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFE1C2)), shape = RoundedCornerShape(11.dp), contentPadding = PaddingValues(vertical = 9.dp)) {
-                    Text("Track Order", color = Color(0xFFB95708), fontSize = 12.sp)
-                }
             }
         }
     }
@@ -11507,6 +11653,7 @@ private fun EmptyState() {
         }
     }
 }
+
 
 
 

@@ -44,7 +44,7 @@ import {
   quoteDiscount,
   saveQuotationBtn
 } from "../core/dom.js";
-import { formatPeso, escapeHtml, formatShortDate, calculatePanelQuoteTotal, parseMoney, getCustomerSelectedPaymentMethod } from "../core/utils.js";
+import { formatPeso, escapeHtml, formatShortDate, calculatePanelQuoteTotal, parseMoney, getCustomerSelectedPaymentMethod, resolvePriceUnit } from "../core/utils.js";
 
 function buildCustomerName() {
   const firstName = quoteFirstName ? quoteFirstName.value.trim() : "";
@@ -258,18 +258,20 @@ function normalizeQuotationItem(item = {}) {
   const discountPercent = Math.min(100, Math.max(0, Number(item.discountPercent || 0) || 0));
   const inventoryItem = findInventoryItemByLabel(item.name || item.productName || item.productCode || "");
   const pricePerMeter = Number(item.pricePerMeter ?? item.price ?? inventoryItem?.pricePerMeter ?? inventoryItem?.price ?? 0) || 0;
+  const priceUnit = resolvePriceUnit(item.priceUnit ? item : (inventoryItem || item));
   const lengthMeters = Number(item.lengthMeters || 0) || calculatePanelQuoteTotal(inventoryItem || item, qty).lengthMeters || 0;
   // Always derive the line total from the current quantity, length, and unit
   // price. Saved line totals can be stale after an item is edited.
-  const lineTotal = roundCurrency(pricePerMeter * Math.max(lengthMeters, 1) * qty);
+  const lineTotal = roundCurrency(pricePerMeter * (priceUnit === "meter" ? Math.max(lengthMeters, 1) : 1) * qty);
 
   return {
     ...item,
     name: item.name || inventoryItem?.name || item.productCode || item.productName || "Item",
     qty,
-    uom: item.uom || "box",
+    uom: item.uom || (priceUnit === "meter" ? "m" : "pc"),
     price: pricePerMeter,
     pricePerMeter,
+    priceUnit,
     lengthMeters,
     discountPercent,
     discountAmount: getDiscountAmount(lineTotal, discountPercent),
@@ -285,9 +287,10 @@ function buildQuotationItemFromInventoryItem(item = {}, qty = 1, discountPercent
     name: item.name,
     categoryGroup: item.categoryGroup,
     qty: pricing.boxes,
-    uom: "box",
+    uom: pricing.priceUnit === "meter" ? "m" : "pc",
     price: pricing.pricePerMeter,
     pricePerMeter: pricing.pricePerMeter,
+    priceUnit: pricing.priceUnit,
     lengthMeters: pricing.lengthMeters,
     discountPercent,
     discountAmount: lineTotal * (discountPercent / 100),
@@ -777,13 +780,15 @@ function recalculateQuotationItem(item = {}) {
   const pricePerMeter = Number(item.pricePerMeter ?? item.price ?? 0) || 0;
   const lengthMeters = Number(item.lengthMeters || 0) || calculatePanelQuoteTotal(item, 1).lengthMeters || 1;
   const discountPercent = Math.min(100, Math.max(0, Number(item.discountPercent || 0) || 0));
-  const lineTotal = roundCurrency(pricePerMeter * lengthMeters * qty);
+  const priceUnit = resolvePriceUnit(item);
+  const lineTotal = roundCurrency(pricePerMeter * (priceUnit === "meter" ? lengthMeters : 1) * qty);
 
   return {
     ...item,
     qty,
     price: pricePerMeter,
     pricePerMeter,
+    priceUnit,
     lengthMeters,
     discountPercent,
     discountAmount: getDiscountAmount(lineTotal, discountPercent),
@@ -847,8 +852,8 @@ export function updateQuotationItemPreview(item = null) {
   if (quoteItemPreview) {
     quoteItemPreview.innerHTML = `
       <strong>${escapeHtml(item.productCode || item.name || "Product")}</strong>
-      <span>${quantity} box${quantity === 1 ? "" : "es"} | ${formatPeso(estimatedTotal)}</span>
-      <span>${escapeHtml(lengthLabel)} | ${formatPeso(pricing.pricePerMeter)} /m</span>
+      <span>${quantity} ${pricing.priceUnit === "meter" ? "m" : "pc"}${quantity === 1 ? "" : "s"} | Line total ${formatPeso(estimatedTotal)}</span>
+      <span>${escapeHtml(lengthLabel)} | ${formatPeso(pricing.unitPrice)} /${pricing.priceUnit === "meter" ? "m" : "pc"}</span>
     `;
   }
 }
@@ -1118,14 +1123,14 @@ export function renderQuoteSummary() {
           <td>
             <strong>${escapeHtml(item.name)}</strong>
             <br />
-            <small>${escapeHtml(item.lengthMeters ? `${item.lengthMeters} m` : item.uom || "box")} | ${discountLabel}</small>
+            <small>${escapeHtml(item.lengthMeters ? `${item.lengthMeters} m` : item.uom || "pc")} | ${discountLabel}</small>
           </td>
           <td>
             <strong>${escapeHtml(String(item.qty || 1))}</strong>
           </td>
           <td>
             <strong>${formatPeso(unitPrice)}</strong>
-            <small>/m</small>
+            <small>/${item.priceUnit === "meter" ? "m" : "pc"}</small>
           </td>
           <td>
             <div class="quote-total-cell">
@@ -1298,7 +1303,7 @@ export function exportCurrentQuotation({ receipt = false } = {}) {
         <td>${escapeHtml(item.name)}</td>
         <td>${escapeHtml(String(item.qty || 1))}</td>
         <td>${escapeHtml(item.uom || "box")}</td>
-        <td>${formatPeso(unitPrice)} /m</td>
+        <td>${formatPeso(unitPrice)} /${item.priceUnit === "meter" ? "m" : "pc"}</td>
         <td>${formatPeso(lineTotal)}</td>
       </tr>
     `;

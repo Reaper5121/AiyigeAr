@@ -169,7 +169,7 @@ export function formatMeasurement(value) {
 
 export function parsePanelDimensions(value = "") {
   const parts = String(value || "")
-    .split(/[xÃ—]/i)
+    .split(/[x\u00D7]/i)
     .map(part => part.trim())
     .filter(Boolean);
 
@@ -215,20 +215,39 @@ export function parseLengthInMeters(value = "") {
   if (!text) return 0;
   const match = text.match(/(\d+(?:\.\d+)?)/);
   if (!match) return 0;
-  return Number(match[1]) || 0;
+  const numericLength = Number(match[1]);
+  const afterFirstNumber = text.slice((match.index || 0) + match[1].length);
+  const unit = afterFirstNumber.match(/^\s*(mm|cm|m|ft|feet|inches?|in)\b/i)?.[1]?.toLowerCase()
+    || text.match(/\b(mm|cm|m|ft|feet|inches?|in)\b/i)?.[1]?.toLowerCase();
+  const meters = unit === "mm" ? numericLength / 1000
+    : unit === "cm" ? numericLength / 100
+      : unit === "ft" || unit === "feet" ? numericLength * 0.3048
+        : unit === "in" || unit === "inch" || unit === "inches" ? numericLength * 0.0254
+          : numericLength;
+  return Number.isFinite(meters) ? meters : 0;
 }
 
 export function calculatePanelQuoteTotal(item = {}, boxes = 1) {
   const safeBoxes = Math.max(1, Number(boxes) || 1);
-  const pricePerMeter = Number(item.pricePerMeter ?? item.price ?? 0) || 0;
+  const priceUnit = resolvePriceUnit(item);
+  const unitPrice = Number(item.unitPrice ?? item.pricePerMeter ?? item.price ?? 0) || 0;
   const lengthMeters = parseLengthInMeters(item.length || item.size);
-  const total = pricePerMeter * lengthMeters * safeBoxes;
+  const total = unitPrice * (priceUnit === "meter" ? lengthMeters : 1) * safeBoxes;
   return {
-    pricePerMeter,
+    pricePerMeter: unitPrice,
+    unitPrice,
+    priceUnit,
     lengthMeters,
     boxes: safeBoxes,
     total
   };
+}
+
+export function resolvePriceUnit(item = {}) {
+  const explicit = String(item.priceUnit || "").trim().toLowerCase();
+  if (["piece", "meter"].includes(explicit)) return explicit;
+  const code = String(item.productCode || item.code || item.panelModel || item.name || "").trim().toUpperCase();
+  return code.startsWith("LJS-") ? "meter" : "piece";
 }
 
 export function normalizeAvailability(quantity) {
@@ -295,6 +314,7 @@ export function normalizeInventoryRecords(demoState) {
       productName: productCode || item.productName || catalogEntry?.type || (legacyType && !/^\d+$/.test(legacyType) ? legacyType : "") || legacyName || ""
     });
     const pricePerMeter = Number.isFinite(Number(item.pricePerMeter)) ? Number(item.pricePerMeter) : Number(item.price || 0);
+    const priceUnit = resolvePriceUnit(item);
     return {
       ...item,
       categoryGroup,
@@ -309,6 +329,7 @@ export function normalizeInventoryRecords(demoState) {
       size: String(item.size || [item.length || parsedDimensions.length || "", item.width || parsedDimensions.width || "", item.thickness || parsedDimensions.thickness || ""].filter(Boolean).join(" x ")).trim(),
       unitsPerBox,
       quantity,
+      priceUnit,
       pricePerMeter,
       price: pricePerMeter,
       availability: normalizeAvailability(quantity)

@@ -68,13 +68,64 @@ permission to change mail settings.
 The app now supports:
 
 - signup confirmation by six-digit OTP
+- resending signup confirmation and recovery codes
+- restoring a pending signup verification after the app is reopened; only the
+  profile fields are retained locally, never the signup password
 - forgot-password reset by six-digit OTP
 - password-reset session created only after a valid OTP is entered
 
-## 5) What is connected right now
+## 5) Configure the backend Supabase credentials
 
-Based on the current environment check:
+The admin backend uses a Secret key for server-side database sync. It reads
+these values from the root `.env` file; `.env` is ignored by Git.
 
-- Supabase Auth is reachable from the app
-- The local backend is running
-- The remote `payment_requests` table is not yet available, so cloud payment saves will still fall back to local storage until that table is created
+1. Copy `.env.example` to `.env` in the repository root.
+2. In Supabase, open `Project Settings` > `API Keys` and copy the project URL and
+   Secret key into `SUPABASE_URL` and `SUPABASE_SECRET_KEY`. Add the project's
+   publishable key as `SUPABASE_PUBLISHABLE_KEY` for Android builds.
+3. Restart the Node backend. It prints a warning when these values are missing
+   and cloud sync is disabled.
+
+Keep the Secret key only in the backend `.env`. Never add it to the Android
+app, `local.properties`, or source control. The Android app uses the project's
+URL and public publishable key for Supabase Auth; those are not substitutes for
+the backend Secret key. The backend also accepts the legacy
+`SUPABASE_SERVICE_ROLE_KEY` variable for existing setups.
+
+When backend Supabase sync is configured, mobile quotation and order submission
+also send the customer's short-lived Supabase access token. The backend checks
+that token with Supabase Auth and requires its account email to match the quote.
+The Secret key stays on the backend and is never sent by the app.
+
+The Android Gradle build reads only `SUPABASE_URL` and
+`SUPABASE_PUBLISHABLE_KEY` from the root `.env`; it never embeds the backend
+Secret key. The Node backend reads `SUPABASE_URL` and `SUPABASE_SECRET_KEY`.
+
+Cloud sync also requires the SQL migrations and tables used by the backend. If
+credentials or columns are missing, relevant data may remain in local backend
+or device storage. A configured `.env` alone does not prove the live database
+schema is ready; verify each required column after applying SQL.
+
+## 6) Connection status
+
+Read-only checks on 2026-11-09 confirmed that the `orders`, `quotations`,
+`payments`, and `room_captures` columns used by the backend are accessible. The
+`payment_requests` table exists but is missing ten columns required by the app:
+`customer_phone`, `summary`, `street_address`, `city_province`, `postal_code`,
+`payment_method`, `delivery_method`, `room_capture_url`, `source`, and
+`updated_at`. Run `supabase/20261109_payment_requests_schema_repair.sql` in the
+Supabase SQL Editor, then run `npm run check:supabase` from the project root to
+re-run the read-only schema check. The check makes no database changes and does
+not read or print customer rows.
+
+The Auth settings endpoint returned HTTP 200. Email sign-in is enabled, email
+auto-confirm is disabled, and signups are enabled. SMTP delivery, OTP email
+templates, and redirect URLs still require verification in the Supabase
+dashboard; the public settings endpoint does not confirm those dashboard values.
+
+For shared live application data, run `supabase/20261110_shared_realtime_state.sql`
+after `supabase/20261109_payment_requests_schema_repair.sql` in the SQL Editor,
+then restart the Node backend once. It initializes the shared state snapshot
+and subscribes the backend to Supabase Realtime. After that, application changes
+propagate across running instances without restarting the apps. Run
+`npm run check:supabase` to verify the `project_data` columns and migration marker.

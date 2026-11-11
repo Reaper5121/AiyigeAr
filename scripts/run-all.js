@@ -9,6 +9,8 @@ const sdkDir = readAndroidSdkDir();
 const adbPath = sdkDir ? path.join(sdkDir, "platform-tools", "adb.exe") : null;
 const javaHome = resolveJavaHome();
 let primaryDeviceSerial = null;
+let knownReadyDeviceSerials = new Set();
+let deviceMonitorTimer = null;
 const legacyCustomerPackage = "com.aiyige.customer";
 const activeComposePackage = "com.aiyige.customer.compose";
 
@@ -167,6 +169,33 @@ function setupPortReverses() {
   }
 }
 
+function monitorAndroidReconnects() {
+  if (!adbPath || !fs.existsSync(adbPath)) return;
+  knownReadyDeviceSerials = new Set(getReadyDevices());
+  deviceMonitorTimer = setInterval(() => {
+    const readyDevices = getReadyDevices();
+    const currentSerials = new Set(readyDevices);
+
+    for (const serial of knownReadyDeviceSerials) {
+      if (!currentSerials.has(serial)) {
+        console.log(`[adb:${serial}] disconnected; the backend will keep running.`);
+      }
+    }
+
+    for (const serial of currentSerials) {
+      if (knownReadyDeviceSerials.has(serial)) continue;
+      if (reversePortOnDevice(serial, 3000, 3000)) {
+        console.log(`[adb:${serial}] reconnected; restored backend forwarding without restarting the server.`);
+      }
+      if (!primaryDeviceSerial || !currentSerials.has(primaryDeviceSerial)) {
+        primaryDeviceSerial = serial;
+      }
+    }
+
+    knownReadyDeviceSerials = currentSerials;
+  }, 3_000);
+}
+
 function removeLegacyMobileApp(serial = primaryDeviceSerial) {
   if (!adbPath || !fs.existsSync(adbPath) || !serial) return;
 
@@ -219,6 +248,11 @@ function start(name, command, args, options = {}) {
       return;
     }
 
+    if (name === "mobile" && code === 2) {
+      console.log(`[${name}] install skipped; backend server will keep running.`);
+      return;
+    }
+
     if (code && code !== 0) {
       console.log(`[${name}] finished with an error, but the backend server will keep running.`);
     } else {
@@ -242,6 +276,7 @@ function start(name, command, args, options = {}) {
 function shutdown(exitCode) {
   if (shuttingDown) return;
   shuttingDown = true;
+  clearInterval(deviceMonitorTimer);
   for (const child of processes.values()) {
     if (!child.killed) {
       child.kill();
@@ -272,3 +307,5 @@ if (!javaHome) {
     launchComponent: `${activeComposePackage}/.MainActivity`
   });
 }
+
+monitorAndroidReconnects();

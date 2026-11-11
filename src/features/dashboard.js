@@ -619,7 +619,6 @@ export function renderSettingsPanel() {
   if (staffAccountsList) {
     staffAccountsList.innerHTML = staffUsers.length ? staffUsers.map(user => `
       <tr>
-        <td><input type="checkbox" class="user-row-checkbox" data-user-select="${escapeHtml(String(user.id))}" aria-label="Select ${escapeHtml(user.displayName || user.username || "user")}" /></td>
         <td><strong>${escapeHtml(user.displayName || user.username || "User")}</strong></td>
         <td>${escapeHtml(user.email || "--")}</td>
         <td>${escapeHtml(user.username || "--")}</td>
@@ -629,13 +628,13 @@ export function renderSettingsPanel() {
         <td>${escapeHtml(formatRelativeUserDate(user.lastActiveAt))}</td>
         <td>
           <div class="user-row-actions">
-            ${String(user.role || "").toLowerCase() === "admin" ? "" : `<button type="button" class="ghost-btn small" data-edit-staff="${escapeHtml(String(user.id))}" aria-label="Edit user">✎</button>`}
-            ${Number(user.id) === Number(appState.currentUser?.id) ? "" : `<button type="button" class="action-btn action-btn-delete action-btn-small" data-delete-staff="${escapeHtml(String(user.id))}" aria-label="Delete user">♧</button>`}
+            ${String(user.role || "").toLowerCase() === "admin" ? "" : `<button type="button" class="ghost-btn small" data-edit-staff="${escapeHtml(String(user.id))}" aria-label="Edit user"><svg class="row-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5 5 5M4 20l4.2-.9L19 8.3a2.1 2.1 0 0 0-3-3L5.2 16.1 4 20Z"/></svg></button>`}
+            ${Number(user.id) === Number(appState.currentUser?.id) ? "" : `<button type="button" class="action-btn action-btn-delete action-btn-small" data-delete-staff="${escapeHtml(String(user.id))}" aria-label="Delete user"><svg class="row-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M5 7l1 14h12l1-14M9 7V4h6v3"/></svg></button>`}
           </div>
         </td>
       </tr>
     `).join("") : `
-      <tr><td colspan="9" class="user-table-empty">No users match the current filters.</td></tr>
+      <tr><td colspan="8" class="user-table-empty">No users match the current filters.</td></tr>
     `;
   }
 }

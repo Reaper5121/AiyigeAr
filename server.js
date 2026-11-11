@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs/promises");
 const path = require("path");
 const { URL } = require("url");
+require("./scripts/load-env")();
 
 const rootDir = __dirname;
 const stateFile = path.join(rootDir, "data", "admin-state.json");
@@ -10,32 +11,236 @@ const logoSourceFile = path.join(rootDir, "client logo.jpg");
 const logoAssetFile = path.join(assetsDir, "logo.jpg");
 const port = Number(process.env.PORT || 3000);
 const supabaseUrl = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
-const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "");
+const supabaseSecretKey = String(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 let pendingStateWrite = Promise.resolve();
 let pendingOrderTransaction = Promise.resolve();
 let pendingAdminBootstrap = Promise.resolve();
 const syncedRoomCaptureIds = new Set();
 const pendingRoomCaptureSyncIds = new Set();
+const stateEventClients = new Set();
+const sharedStateType = "app_state";
+const sharedStateExternalId = "shared";
+let lastSharedStateRevision = "";
+let sharedStatePollAt = 0;
+let sharedStatePollPromise = null;
+let sharedStateRealtimeSocket = null;
+let sharedStateRealtimeRetry = null;
+let sharedStateRealtimeRetryMs = 1_000;
+let sharedStateSyncReady = false;
+
+function publishStateChange() {
+  const event = `event: state-changed\ndata: ${JSON.stringify({ updatedAt: new Date().toISOString() })}\n\n`;
+  for (const response of stateEventClients) {
+    if (response.destroyed || response.writableEnded) {
+      stateEventClients.delete(response);
+      continue;
+    }
+    response.write(event);
+  }
+}
 
 function isSupabaseSyncEnabled() {
-  return Boolean(supabaseUrl && supabaseServiceRoleKey);
+  return Boolean(supabaseUrl && supabaseSecretKey);
+}
+
+if (!isSupabaseSyncEnabled()) {
+  console.warn("Supabase sync is disabled. Set SUPABASE_URL and SUPABASE_SECRET_KEY in the root .env file.");
 }
 
 async function supabaseRequest(pathname, method, body) {
   if (!isSupabaseSyncEnabled()) return null;
+  const headers = {
+    apikey: supabaseSecretKey,
+    "Content-Type": "application/json",
+    Prefer: "resolution=merge-duplicates,return=representation"
+  };
+  // Current Supabase secret keys are API keys, not JWTs. Only legacy
+  // service_role JWTs belong in Authorization: Bearer.
+  if (!supabaseSecretKey.startsWith("sb_secret_")) {
+    headers.Authorization = `Bearer ${supabaseSecretKey}`;
+  }
   const response = await fetch(`${supabaseUrl}/rest/v1/${pathname}`, {
     method,
-    headers: {
-      apikey: supabaseServiceRoleKey,
-      Authorization: `Bearer ${supabaseServiceRoleKey}`,
-      "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=representation"
-    },
+    headers,
     body: body == null ? undefined : JSON.stringify(body)
   });
   const text = await response.text();
   if (!response.ok) throw new Error(`Supabase ${method} ${pathname} failed (${response.status}): ${text.slice(0, 400)}`);
   return text ? JSON.parse(text) : null;
+}
+
+function sharedStatePath() {
+  return `project_data?data_type=eq.${encodeURIComponent(sharedStateType)}&external_id=eq.${encodeURIComponent(sharedStateExternalId)}&select=id,data,updated_at&limit=1`;
+}
+
+async function fetchSharedStateRow() {
+  if (!sharedStateSyncReady) return null;
+  const rows = await supabaseRequest(sharedStatePath(), "GET");
+  return Array.isArray(rows) ? rows[0] || null : null;
+}
+
+async function saveSharedState(state) {
+  if (!isSupabaseSyncEnabled() || !sharedStateSyncReady) return;
+  const rows = await supabaseRequest("project_data?on_conflict=data_type,external_id", "POST", [{
+    data_type: sharedStateType,
+    external_id: sharedStateExternalId,
+    data: state,
+    updated_at: new Date().toISOString()
+  }]);
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (row?.updated_at) lastSharedStateRevision = String(row.updated_at);
+}
+
+async function applySharedStateRow(row, { publish = true } = {}) {
+  if (!row?.data || typeof row.data !== "object" || Array.isArray(row.data)) return false;
+  const revision = String(row.updated_at || "");
+  if (revision && revision === lastSharedStateRevision) return false;
+  const state = JSON.parse(JSON.stringify(row.data));
+  if (["inventory", "orders", "payments", "customers"].some(key => !Array.isArray(state[key]))) {
+    console.warn("Supabase shared state row is missing required collections; keeping the current state.");
+    return false;
+  }
+  if (Array.isArray(state.users)) {
+    state.users = state.users.filter(user => ["admin", "sales_staff", "sales_manager", "inventory_staff", "owner"].includes(String(user?.role || "").toLowerCase()));
+  }
+  const normalizedState = await normalizeInventoryAssets(state);
+  await normalizeRoomCaptureAssets(normalizedState);
+  await fs.mkdir(path.dirname(stateFile), { recursive: true });
+  const temporaryStateFile = `${stateFile}.${process.pid}.remote.tmp`;
+  await fs.writeFile(temporaryStateFile, JSON.stringify(normalizedState), "utf8");
+  await fs.rename(temporaryStateFile, stateFile);
+  if (revision) lastSharedStateRevision = revision;
+  if (publish) publishStateChange();
+  return true;
+}
+
+async function refreshSharedStateFromSupabase() {
+  if (!isSupabaseSyncEnabled() || !sharedStateSyncReady) return false;
+  if (sharedStatePollPromise) return sharedStatePollPromise;
+  if (Date.now() - sharedStatePollAt < 2_000) return false;
+  sharedStatePollAt = Date.now();
+  sharedStatePollPromise = (async () => {
+    try {
+      const row = await fetchSharedStateRow();
+      return row ? await applySharedStateRow(row) : false;
+    } catch (error) {
+      console.warn(`Supabase shared-state refresh failed: ${error.message}`);
+      return false;
+    } finally {
+      sharedStatePollPromise = null;
+    }
+  })();
+  return sharedStatePollPromise;
+}
+
+function connectSharedStateRealtime() {
+  if (!isSupabaseSyncEnabled() || !sharedStateSyncReady || typeof WebSocket === "undefined" || sharedStateRealtimeSocket) return;
+  const socketUrl = new URL(`${supabaseUrl.replace(/^https:/, "wss:")}/realtime/v1/websocket`);
+  socketUrl.searchParams.set("apikey", supabaseSecretKey);
+  socketUrl.searchParams.set("vsn", "1.0.0");
+  let joined = false;
+  let heartbeat;
+  try {
+    const socket = new WebSocket(socketUrl);
+    sharedStateRealtimeSocket = socket;
+    socket.addEventListener("open", () => {
+      socket.send(JSON.stringify({
+        topic: "realtime:public:project_data",
+        event: "phx_join",
+        ref: "1",
+        payload: {
+          config: {
+            broadcast: { ack: false, self: false },
+            presence: { key: "" },
+            postgres_changes: [{
+              event: "*",
+              schema: "public",
+              table: "project_data",
+              filter: `data_type=eq.${sharedStateType}`,
+              select: ["id", "updated_at"]
+            }]
+          }
+        }
+      }));
+      heartbeat = setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ topic: "phoenix", event: "heartbeat", payload: {}, ref: String(Date.now()) }));
+        }
+      }, 25_000);
+    });
+    socket.addEventListener("message", event => {
+      let message;
+      try { message = JSON.parse(String(event.data)); } catch { return; }
+      if (message.event === "phx_reply" && message.payload?.status === "ok") {
+        if (!joined) {
+          joined = true;
+          sharedStateRealtimeRetryMs = 1_000;
+          console.log("Supabase Realtime connected for shared app data.");
+        }
+        return;
+      }
+      if (message.event === "phx_reply" && message.payload?.status === "error") {
+        console.warn(`Supabase Realtime subscription rejected: ${message.payload?.response?.reason || "check the Realtime publication migration"}`);
+        return;
+      }
+      if (message.event === "postgres_changes" || message.event === "system") {
+        void refreshSharedStateFromSupabase();
+      }
+    });
+    const scheduleReconnect = () => {
+      clearInterval(heartbeat);
+      if (sharedStateRealtimeSocket === socket) sharedStateRealtimeSocket = null;
+      if (sharedStateRealtimeRetry) return;
+      const delay = sharedStateRealtimeRetryMs;
+      sharedStateRealtimeRetryMs = Math.min(sharedStateRealtimeRetryMs * 2, 30_000);
+      sharedStateRealtimeRetry = setTimeout(() => {
+        sharedStateRealtimeRetry = null;
+        connectSharedStateRealtime();
+      }, delay);
+      if (joined) console.warn("Supabase Realtime disconnected; reconnecting.");
+    };
+    socket.addEventListener("close", scheduleReconnect, { once: true });
+    socket.addEventListener("error", () => socket.close(), { once: true });
+  } catch (error) {
+    sharedStateRealtimeSocket = null;
+    console.warn(`Supabase Realtime could not start: ${error.message}`);
+  }
+}
+
+async function verifyMobileCustomer(req, requestedEmail) {
+  if (!isSupabaseSyncEnabled()) return;
+  const token = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization || ""))?.[1]?.trim();
+  if (!token) {
+    const error = new Error("Sign in again to verify your account before checkout.");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  let response;
+  try {
+    response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { apikey: supabaseSecretKey, Authorization: `Bearer ${token}` }
+    });
+  } catch {
+    const error = new Error("Account verification is temporarily unavailable. Please try again.");
+    error.statusCode = 503;
+    throw error;
+  }
+  if (!response.ok) {
+    const isUnauthorized = response.status === 401 || response.status === 403;
+    const error = new Error(isUnauthorized
+      ? "Your sign-in session expired. Sign in again before checkout."
+      : "Account verification is temporarily unavailable. Please try again.");
+    error.statusCode = isUnauthorized ? 401 : 503;
+    throw error;
+  }
+  const user = await response.json().catch(() => null);
+  if (!String(user?.email || "").trim().toLowerCase() ||
+      String(user.email).trim().toLowerCase() !== String(requestedEmail || "").trim().toLowerCase()) {
+    const error = new Error("The signed-in account does not match this customer account.");
+    error.statusCode = 403;
+    throw error;
+  }
 }
 
 async function syncRoomCapturesToSupabase(roomCaptures = []) {
@@ -480,6 +685,8 @@ function hydrateGeneratedQuotations(state) {
 
 async function readState() {
   await ensureStateFile();
+  await pendingStateWrite.catch(() => undefined);
+  await refreshSharedStateFromSupabase();
   const raw = await fs.readFile(stateFile, "utf8");
   return hydrateGeneratedQuotations(JSON.parse(raw.replace(/^\uFEFF/, "")));
 }
@@ -510,6 +717,12 @@ async function writeState(state) {
     // partially-written JSON file if the process or machine stops mid-save.
     await fs.writeFile(temporaryStateFile, JSON.stringify(normalizedState), "utf8");
     await fs.rename(temporaryStateFile, stateFile);
+    try {
+      await saveSharedState(normalizedState);
+    } catch (error) {
+      console.warn(`Supabase shared-state save failed; local changes were retained: ${error.message}`);
+    }
+    publishStateChange();
     queueNewRoomCaptureSync(normalizedState.roomCaptures);
     return normalizedState;
   });
@@ -526,7 +739,10 @@ async function serveStatic(res, filePath) {
     const data = await fs.readFile(filePath);
     res.writeHead(200, {
       "Content-Type": getContentType(filePath),
-      "Cache-Control": "no-store"
+      "Cache-Control": "no-store",
+      // The Android WebView loads GLBs from the backend while the page itself
+      // uses the appassets.androidplatform.net origin.
+      "Access-Control-Allow-Origin": "*"
     });
     res.end(data);
   } catch {
@@ -583,6 +799,22 @@ function money(value) {
   return Number.isFinite(number) ? Math.round(number * 100) / 100 : 0;
 }
 
+function parsePanelLengthMeters(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/\d+(?:\.\d+)?/);
+  if (!match) return 1;
+  const numericLength = Number(match[0]);
+  const afterFirstNumber = text.slice((match.index || 0) + match[0].length);
+  const unit = afterFirstNumber.match(/^\s*(mm|cm|m|ft|feet|inches?|in)\b/i)?.[1]?.toLowerCase()
+    || text.match(/\b(mm|cm|m|ft|feet|inches?|in)\b/i)?.[1]?.toLowerCase();
+  const meters = unit === "mm" ? numericLength / 1000
+    : unit === "cm" ? numericLength / 100
+      : unit === "ft" || unit === "feet" ? numericLength * 0.3048
+        : unit === "in" || unit === "inch" || unit === "inches" ? numericLength * 0.0254
+          : numericLength;
+  return Number.isFinite(meters) && meters > 0 ? meters : 1;
+}
+
 function getBusinessProfile(state) {
   const business = state?.settings?.business || {};
   const savedName = String(business.name || "").trim();
@@ -601,20 +833,66 @@ function makeQuotationNumber(state, year) {
   return `QT-${year}-${String(next).padStart(3, "0")}`;
 }
 
-function normalizeOrderItems(items) {
+function resolveInventoryPriceUnit(item = {}) {
+  const explicit = String(item.priceUnit || "").trim().toLowerCase();
+  if (explicit === "meter" || explicit === "piece") return explicit;
+  const code = String(item.productCode || item.code || item.panelModel || item.name || "").trim().toUpperCase();
+  return code.startsWith("LJS-") ? "meter" : "piece";
+}
+
+function normalizeOrderItems(items, inventory = [], { useSnapshotPrice = false } = {}) {
+  const addOnPrices = { "Fixings Kit": 18, "Pro Adhesive": 12, "Edge Trim": 24 };
   return (Array.isArray(items) ? items : []).map(item => {
-    const quantity = Math.max(1, Number(item.quantity ?? item.qty ?? 1) || 1);
-    const unitPrice = money(item.unitPrice ?? item.price ?? item.pricePerMeter);
+    const quantity = Number(item.quantity ?? item.qty ?? 1);
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10_000) {
+      throw new Error("Each item quantity must be between 1 and 10,000.");
+    }
+    const productId = item.productId ?? item.id ?? null;
+    const product = useSnapshotPrice
+      ? null
+      : inventory.find(candidate => String(candidate.id) === String(productId));
+    if (!useSnapshotPrice && !product) throw new Error("A selected product is no longer available. Refresh the catalog and try again.");
+    const availableQuantity = Number(product?.quantity);
+    if (Number.isFinite(availableQuantity) && quantity > availableQuantity) {
+      throw new Error("There is not enough stock for one or more selected items. Update the cart and try again.");
+    }
+
+    const customization = item.customization && typeof item.customization === "object" ? item.customization : null;
+    const addOns = customization?.addOns == null ? [] : customization.addOns;
+    if (!Array.isArray(addOns) || addOns.some(name => !Object.prototype.hasOwnProperty.call(addOnPrices, String(name)))) {
+      throw new Error("A selected customization add-on is not available.");
+    }
+    const size = String(customization?.size || item.size || product?.size || "").trim().slice(0, 100);
+    const finish = String(customization?.finish ?? item.finish ?? product?.material ?? "").trim().slice(0, 80);
+    const colour = String(customization?.colour ?? item.colour ?? "").trim().slice(0, 80);
+    const notes = String(customization?.notes ?? "").trim().slice(0, 500);
+    const unitPrice = useSnapshotPrice
+      ? money(item.unitPrice ?? item.price ?? item.pricePerMeter)
+      : money(product.pricePerMeter ?? product.price ?? 0) +
+        (customization && size.includes("300") ? 12 : 0) +
+        addOns.reduce((sum, name) => sum + addOnPrices[name], 0);
+    const priceUnit = resolveInventoryPriceUnit(item.priceUnit ? item : (product || item));
+    const lengthMeters = Number(item.lengthMeters) > 0
+      ? money(item.lengthMeters)
+      : parsePanelLengthMeters(size);
+    const panelModel = String(product?.name ?? item.panelModel ?? item.name ?? item.productName ?? "Panel").trim().slice(0, 160);
+    if (!panelModel || !Number.isFinite(unitPrice) || unitPrice < 0) {
+      throw new Error("A selected product has invalid quotation details.");
+    }
     return {
-      productId: item.productId ?? item.id ?? null,
-      panelModel: String(item.panelModel ?? item.name ?? item.productName ?? "Panel").trim(),
-      size: String(item.size ?? "").trim(),
-      finish: String(item.finish ?? item.colour ?? item.color ?? "").trim(),
+      productId,
+      panelModel,
+      size,
+      finish,
+      colour,
+      customization: customization ? { size, finish, colour, addOns: [...addOns], notes } : null,
       quantity,
       unitPrice,
-      lineTotal: money(unitPrice * quantity)
+      priceUnit,
+      lengthMeters,
+      lineTotal: money(unitPrice * (priceUnit === "meter" ? lengthMeters : 1) * quantity)
     };
-  }).filter(item => item.lineTotal >= 0 && item.panelModel);
+  });
 }
 
 async function createOrderTransaction(payload) {
@@ -630,6 +908,9 @@ async function createOrderTransaction(payload) {
   const customer = payload.customer || {};
   if (String(preparedQuotation.customer?.email || "").toLowerCase() !== String(customer.email || "").toLowerCase()) {
     throw new Error("This quotation belongs to a different customer account.");
+  }
+  if (!String(preparedQuotation.customer?.deliveryAddress || "").trim()) {
+    throw new Error("Add a delivery address before submitting the order.");
   }
   const requestedPaymentMethod = String(payload.paymentMethod || "").trim();
   const availablePaymentMethods = Array.isArray(state.settings?.paymentModes) && state.settings.paymentModes.length
@@ -654,7 +935,7 @@ async function createOrderTransaction(payload) {
     }
     throw new Error("This quotation has already been submitted.");
   }
-  const items = normalizeOrderItems(preparedQuotation.items_snapshot);
+  const items = normalizeOrderItems(preparedQuotation.items_snapshot, [], { useSnapshotPrice: true });
   if (!items.length) throw new Error("At least one order item is required.");
 
   const now = new Date();
@@ -692,6 +973,8 @@ async function createOrderTransaction(payload) {
     customerEmail: quotation.customer.email,
     customerPhone: quotation.customer.contact,
     deliveryAddress: quotation.customer.deliveryAddress,
+    deliveryRecipientName: quotation.customer.deliveryRecipientName || "",
+    deliveryRecipientPhone: quotation.customer.deliveryRecipientPhone || "",
     products: items.map(item => `${item.panelModel} x${item.quantity}`).join(", "),
     quotationItems: quotation.items_snapshot,
     amount: total,
@@ -739,6 +1022,13 @@ async function createOrderTransaction(payload) {
   state.payments = Array.isArray(state.payments) ? state.payments : [];
   state.quotations = Array.isArray(state.quotations) ? state.quotations : [];
   state.notifications = Array.isArray(state.notifications) ? state.notifications : [];
+  delete quotation.customer_checkout_status;
+  delete quotation.checkout_updated_at;
+  state.notifications = state.notifications.filter(item => !(
+    String(item.quoteNumber || item.quote_number || "").trim() === quotationNo &&
+    String(item.customerEmail || item.customer_email || "").trim().toLowerCase() === String(quotation.customer.email || "").trim().toLowerCase() &&
+    item.kind === "unfinished_quotation"
+  ));
   state.orders.unshift(order);
   state.payments.unshift(payment);
   state.notifications.unshift(notification);
@@ -759,7 +1049,7 @@ async function prepareQuotationTransaction(payload) {
     : null;
   if (existing) return { quotation: existing };
 
-  const items = normalizeOrderItems(payload.items);
+  const items = normalizeOrderItems(payload.items, state.inventory || []);
   if (!items.length) throw new Error("At least one quotation item is required.");
 
   const createdAt = new Date().toISOString();
@@ -775,7 +1065,9 @@ async function prepareQuotationTransaction(payload) {
     name: String(customer.name || "Customer").trim(),
     contact: String(customer.contact || customer.contactNumber || "").trim(),
     email: customerEmail,
-    deliveryAddress: String(customer.deliveryAddress || customer.address || "").trim()
+    deliveryAddress: String(customer.deliveryAddress || customer.address || "").trim(),
+    deliveryRecipientName: String(customer.deliveryRecipientName || "").trim().slice(0, 160),
+    deliveryRecipientPhone: String(customer.deliveryRecipientPhone || "").trim().slice(0, 40)
   };
   const terms = String(state.settings?.business?.terms || "");
   const business = getBusinessProfile(state);
@@ -835,6 +1127,31 @@ async function prepareQuotationTransaction(payload) {
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
+  if (requestUrl.pathname === "/api/events" && req.method === "GET") {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "Access-Control-Allow-Origin": "*",
+      "X-Accel-Buffering": "no"
+    });
+    res.write(`event: connected\ndata: ${JSON.stringify({ connectedAt: new Date().toISOString() })}\n\n`);
+    stateEventClients.add(res);
+    const heartbeat = setInterval(() => {
+      if (res.destroyed || res.writableEnded) {
+        clearInterval(heartbeat);
+        stateEventClients.delete(res);
+        return;
+      }
+      res.write(": keep-alive\n\n");
+    }, 25_000);
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      stateEventClients.delete(res);
+    });
+    return;
+  }
+
   if (requestUrl.pathname === "/api/setup/first-admin" && req.method === "POST") {
     const operation = pendingAdminBootstrap.then(async () => {
       const payload = await readJsonBody(req);
@@ -877,12 +1194,13 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/orders" && req.method === "POST") {
     try {
       const payload = await readJsonBody(req);
+      await verifyMobileCustomer(req, payload.customer?.email);
       const operation = pendingOrderTransaction.then(() => createOrderTransaction(payload));
       pendingOrderTransaction = operation.catch(() => undefined);
       const result = await operation;
       sendJson(res, 201, result);
     } catch (error) {
-      sendJson(res, 400, { error: error.message || "Unable to create order." });
+      sendJson(res, error.statusCode || 400, { error: error.message || "Unable to create order." });
     }
     return;
   }
@@ -890,12 +1208,121 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/quotations/prepare" && req.method === "POST") {
     try {
       const payload = await readJsonBody(req);
+      await verifyMobileCustomer(req, payload.customer?.email);
       const operation = pendingOrderTransaction.then(() => prepareQuotationTransaction(payload));
       pendingOrderTransaction = operation.catch(() => undefined);
       const result = await operation;
       sendJson(res, 201, result);
     } catch (error) {
-      sendJson(res, 400, { error: error.message || "Unable to prepare quotation." });
+      sendJson(res, error.statusCode || 400, { error: error.message || "Unable to prepare quotation." });
+    }
+    return;
+  }
+
+  const quotationCheckoutMatch = requestUrl.pathname.match(/^\/api\/quotations\/([^/]+)\/checkout-state$/);
+  if (quotationCheckoutMatch && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const quotationNo = decodeURIComponent(quotationCheckoutMatch[1]);
+      const customerEmail = String(payload.email || "").trim().toLowerCase();
+      await verifyMobileCustomer(req, customerEmail);
+      const requestedStatus = String(payload.status || "").trim();
+      if (!["unfinished", "in_progress"].includes(requestedStatus)) {
+        sendJson(res, 400, { error: "Unsupported quotation checkout status." });
+        return;
+      }
+
+      const operation = pendingOrderTransaction.then(async () => {
+        const state = await readState();
+        const quotation = (state.quotations || []).find(item => (
+          String(item.quotation_no || "").trim() === quotationNo &&
+          String(item.customer?.email || "").trim().toLowerCase() === customerEmail
+        ));
+        if (!quotation) {
+          const error = new Error("Quotation not found for this customer.");
+          error.statusCode = 404;
+          throw error;
+        }
+        if (quotation.order_id || quotation.customer_confirmed_at) {
+          const error = new Error("This quotation has already moved into order processing.");
+          error.statusCode = 409;
+          throw error;
+        }
+
+        quotation.customer_checkout_status = requestedStatus;
+        quotation.checkout_updated_at = new Date().toISOString();
+        state.notifications = Array.isArray(state.notifications) ? state.notifications : [];
+        state.notifications = state.notifications.filter(item => !(
+          String(item.quoteNumber || item.quote_number || "").trim() === quotationNo &&
+          String(item.customerEmail || item.customer_email || "").trim().toLowerCase() === customerEmail &&
+          item.kind === "unfinished_quotation"
+        ));
+        if (requestedStatus === "unfinished") {
+          state.notifications.unshift({
+            id: `NOT-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            customerEmail,
+            title: "Unfinished quotation",
+            message: `Your quotation ${quotationNo} is unfinished. Return to your menu to continue checkout.`,
+            quoteNumber: quotationNo,
+            kind: "unfinished_quotation",
+            createdAt: quotation.checkout_updated_at
+          });
+        }
+        await writeState(state);
+        return quotation;
+      });
+      pendingOrderTransaction = operation.catch(() => undefined);
+      const quotation = await operation;
+      sendJson(res, 200, { quotation });
+    } catch (error) {
+      sendJson(res, error.statusCode || 400, { error: error.message || "Unable to update quotation checkout status." });
+    }
+    return;
+  }
+
+  const customerQuotationMatch = requestUrl.pathname.match(/^\/api\/quotations\/([^/]+)$/);
+  if (customerQuotationMatch && req.method === "DELETE") {
+    try {
+      const payload = await readJsonBody(req);
+      const quotationNo = decodeURIComponent(customerQuotationMatch[1]);
+      const customerEmail = String(payload.email || "").trim().toLowerCase();
+      await verifyMobileCustomer(req, customerEmail);
+      const operation = pendingOrderTransaction.then(async () => {
+        const state = await readState();
+        const quotationIndex = (state.quotations || []).findIndex(item => (
+          String(item.quotation_no || "").trim() === quotationNo &&
+          String(item.customer?.email || "").trim().toLowerCase() === customerEmail
+        ));
+        if (quotationIndex < 0) {
+          const error = new Error("Quotation not found for this customer.");
+          error.statusCode = 404;
+          throw error;
+        }
+        const quotation = state.quotations[quotationIndex];
+        if (quotation.customer_checkout_status !== "unfinished" || quotation.order_id || quotation.customer_confirmed_at) {
+          const error = new Error("Only an unfinished quotation without an order can be deleted.");
+          error.statusCode = 409;
+          throw error;
+        }
+        state.quotations.splice(quotationIndex, 1);
+        if (Array.isArray(state.savedQuotations)) {
+          state.savedQuotations = state.savedQuotations.filter(item => (
+            String(item.number || item.meta?.quotationNumber || "").trim() !== quotationNo
+          ));
+        }
+        const notifications = Array.isArray(state.notifications) ? state.notifications : [];
+        state.notifications = notifications.filter(item => (
+          String(item.quoteNumber || item.quote_number || "").trim() !== quotationNo ||
+          String(item.customerEmail || item.customer_email || "").trim().toLowerCase() !== customerEmail
+        ));
+        await writeState(state);
+        return { quotationNumber: quotationNo };
+      });
+      pendingOrderTransaction = operation.catch(() => undefined);
+      const result = await operation;
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendJson(res, error.statusCode || 400, { error: error.message || "Unable to delete unfinished quotation." });
     }
     return;
   }
@@ -915,6 +1342,29 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, quotation);
     } catch (error) {
       sendJson(res, 500, { error: "Unable to read quotation." });
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/mobile/sync" && req.method === "GET") {
+    try {
+      const email = String(requestUrl.searchParams.get("email") || "").trim().toLowerCase();
+      if (email) await verifyMobileCustomer(req, email);
+      const state = await readState();
+      const matchesEmail = record => String(record?.customerEmail || record?.customer_email || record?.customer?.email || "").trim().toLowerCase() === email;
+      const customer = email
+        ? (state.customers || []).find(record => String(record?.email || "").trim().toLowerCase() === email) || null
+        : null;
+      sendJson(res, 200, {
+        updatedAt: (await fs.stat(stateFile)).mtime.toISOString(),
+        inventory: state.inventory || [],
+        paymentModes: state.settings?.paymentModes || [],
+        customer,
+        orders: email ? (state.orders || []).filter(matchesEmail) : [],
+        quotations: email ? (state.quotations || []).filter(record => String(record.customer?.email || "").trim().toLowerCase() === email) : []
+      });
+    } catch (error) {
+      sendJson(res, error.statusCode || 500, { error: error.message || "Unable to sync mobile data." });
     }
     return;
   }
@@ -1087,7 +1537,38 @@ server.on("error", error => {
   throw error;
 });
 
+async function initializeSharedState() {
+  if (!isSupabaseSyncEnabled()) return;
+  try {
+    await ensureStateFile();
+    const readinessRows = await supabaseRequest(
+      `project_data?data_type=eq.app_state_config&external_id=eq.shared&select=data&limit=1`,
+      "GET"
+    );
+    const readiness = Array.isArray(readinessRows) ? readinessRows[0]?.data : null;
+    if (Number(readiness?.schema_version) !== 1 || readiness?.private_state_row !== true) {
+      console.warn("Shared Supabase sync is paused. Run supabase/20261110_shared_realtime_state.sql, then restart the backend.");
+      return;
+    }
+    sharedStateSyncReady = true;
+    const row = await fetchSharedStateRow();
+    if (row) {
+      await applySharedStateRow(row, { publish: false });
+      console.log("Loaded shared app data from Supabase.");
+    } else {
+      const raw = await fs.readFile(stateFile, "utf8");
+      const state = hydrateGeneratedQuotations(JSON.parse(raw.replace(/^\uFEFF/, "")));
+      await saveSharedState(state);
+      console.log("Initialized shared app data in Supabase from the current local state.");
+    }
+  } catch (error) {
+    console.warn(`Supabase shared-state initialization failed: ${error.message}`);
+  }
+  connectSharedStateRealtime();
+  setInterval(() => { void refreshSharedStateFromSupabase(); }, 10_000).unref();
+}
+
 server.listen(port, "0.0.0.0", () => {
   console.log(`Admin backend running at http://localhost:${port}`);
-  syncExistingStateToSupabase();
+  void initializeSharedState().then(() => syncExistingStateToSupabase());
 });

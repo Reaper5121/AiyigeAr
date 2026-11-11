@@ -71,15 +71,15 @@ export function canAccessView(viewName) {
 }
 
 export function canManageInventory() {
-  return ["inventory_staff", "owner"].includes(getCurrentRole());
+  return getCurrentRole() === "inventory_staff";
 }
 
 export function canManagePayments() {
-  return ["sales_staff", "sales_manager", "owner"].includes(getCurrentRole());
+  return ["sales_staff", "sales_manager"].includes(getCurrentRole());
 }
 
 export function canManageQuotations() {
-  return ["sales_staff", "sales_manager", "owner"].includes(getCurrentRole());
+  return ["sales_staff", "sales_manager"].includes(getCurrentRole());
 }
 
 export function canManageSettings() {
@@ -87,7 +87,7 @@ export function canManageSettings() {
 }
 
 export function canManageRoomCaptures() {
-  return ["sales_staff", "sales_manager", "owner"].includes(getCurrentRole());
+  return ["sales_staff", "sales_manager"].includes(getCurrentRole());
 }
 
 export function getCurrentUserDisplayName() {

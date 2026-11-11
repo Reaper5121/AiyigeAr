@@ -8,6 +8,7 @@
     "start": "node scripts/run-all.js",
     "server": "node server.js",
     "mobile": "node scripts/install-mobile.js",
+    "check:supabase": "node scripts/check-supabase-config.js",
     "dev": "node --watch server.js",
     "dev:all": "node scripts/run-all.js"
   }

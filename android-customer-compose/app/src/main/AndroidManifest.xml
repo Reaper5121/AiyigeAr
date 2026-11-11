@@ -11,13 +11,12 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.AiyigeCustomerCompose">
-        <meta-data
-            android:name="com.google.ar.core"
-            android:value="optional" />
+        <meta-data android:name="com.google.ar.core" android:value="optional" />
         <activity
             android:name="com.aiyige.customer.compose.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

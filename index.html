@@ -66,9 +66,10 @@
 
       <div class="sidebar-card">
         <p class="sidebar-title">System Status</p>
-        <div class="status-pill success">Online</div>
-        <p class="sidebar-note">Inventory synced 2 minutes ago.</p>
+        <div class="status-pill success" id="connectionStatus" role="status" aria-live="polite">Online</div>
+        <p class="sidebar-note" id="connectionStatusNote">Connection available.</p>
       </div>
+      <button class="sidebar-logout" id="logoutBtn" type="button">Logout</button>
     </aside>
 
     <main class="main">
@@ -85,7 +86,6 @@
               <small id="profileRole">Authorized Staff</small>
             </div>
           </div>
-          <button class="ghost-btn" id="logoutBtn">Logout</button>
         </div>
       </header>
 
@@ -103,10 +103,6 @@
           </div>
         </section>
         <section class="role-dashboard sales-staff-dashboard">
-          <div class="role-dashboard-head">
-            <div><p class="eyebrow">Sales Operations</p><h2>Sales Staff Dashboard</h2><p class="section-copy">Review customer orders, verify payments, and manage deliveries.</p></div>
-            <div class="role-dashboard-actions"><button class="ghost-btn" id="salesDashboardProductsBtn" type="button">Products</button><button class="primary-btn" id="salesDashboardQuoteBtn" type="button">View Orders</button></div>
-          </div>
           <div class="role-dashboard-metrics">
             <article><span>Quotations</span><strong id="salesDashboardQuotes">0</strong><small>Customer orders</small></article>
             <article><span>Customer Records</span><strong id="salesDashboardCustomers">0</strong><small>Available accounts</small></article>
@@ -124,7 +120,7 @@
             <div class="role-dashboard-actions"><button class="ghost-btn" id="salesManagerQuotesBtn" type="button">Quotations</button><button class="primary-btn" id="salesManagerReportsBtn" type="button">Sales reports</button></div>
           </div>
           <div class="role-dashboard-metrics">
-            <article><span>Total sales</span><strong id="salesManagerTotalSales">â‚±0</strong><small>Recorded payments</small></article>
+            <article><span>Total sales</span><strong id="salesManagerTotalSales">&#8369;0</strong><small>Recorded payments</small></article>
             <article><span>Generated quotations</span><strong id="salesManagerPendingQuotes">0</strong><small>Available to view</small></article>
             <article><span>Awaiting payments</span><strong id="salesManagerAwaitingPayments">0</strong><small>Payment follow-up</small></article>
             <article><span>Active deliveries</span><strong id="salesManagerActiveDeliveries">0</strong><small>Courier progress</small></article>
@@ -187,7 +183,7 @@
             <div class="role-dashboard-actions"><button class="ghost-btn" id="ownerDashboardInventoryBtn" type="button">Inventory</button><button class="primary-btn" id="ownerDashboardSalesBtn" type="button">Sales Reports</button></div>
           </div>
           <div class="role-dashboard-metrics">
-            <article><span>Total Sales</span><strong id="ownerDashboardSales">â‚±0</strong><small>Recorded sales</small></article>
+            <article><span>Total Sales</span><strong id="ownerDashboardSales">&#8369;0</strong><small>Recorded sales</small></article>
             <article><span>Low Stock</span><strong id="ownerDashboardLowStock">0</strong><small>Needs attention</small></article>
             <article><span>Products</span><strong id="ownerDashboardProducts">0</strong><small>Catalog records</small></article>
             <article><span>Employees</span><strong id="ownerDashboardEmployees">0</strong><small>Team records</small></article>
@@ -196,7 +192,7 @@
         <div class="kpi-grid">
           <article class="kpi-card accent actionable" role="button" tabindex="0" data-kpi-target="sales">
             <span>Total Sales</span>
-            <strong id="totalSales">â‚±0</strong>
+            <strong id="totalSales">&#8369;0</strong>
             <small>No sales yet</small>
           </article>
           <article class="kpi-card actionable" role="button" tabindex="0" data-kpi-target="payments">
@@ -248,7 +244,7 @@
               <div class="donut" id="paymentDonut">
                 <div class="donut-segments" id="paymentDonutSegments" aria-hidden="true"></div>
                 <div class="donut-center">
-                  <strong>â‚±0</strong>
+                  <strong>&#8369;0</strong>
                   <small>Collected</small>
                 </div>
               </div>
@@ -298,7 +294,7 @@
               <span class="status-pill success" id="roomCaptureCount">0 captures</span>
               <button class="secondary-btn small" id="roomCaptureRefreshBtn" type="button">Refresh Captures</button>
               <button class="action-btn action-btn-delete action-btn-small" id="roomCaptureDeleteAllBtn" type="button">
-                <span class="action-btn-icon" aria-hidden="true">Ã—</span>
+                <span class="action-btn-icon" aria-hidden="true">&times;</span>
                 <span>Delete All</span>
               </button>
             </div>
@@ -308,7 +304,6 @@
       </section>
 
       <section class="content hidden" data-section="courier">
-        <div class="section-hero operations-hero"><div><p class="eyebrow">Sales Staff Dashboard</p><h2>Delivery updates</h2><p class="section-copy">Customers select J&amp;T or Lalamove at checkout. Staff can record external delivery progress.</p></div></div>
         <div class="operations-metrics" id="courierMetrics"></div>
         <div class="courier-layout">
           <section class="operations-card courier-orders-card"><div class="operations-card-head"><div><p class="eyebrow">Delivery timeline</p><h3>All orders</h3></div><div class="filter-chips" id="courierFilters"></div></div><div id="courierTimelineList" class="courier-timeline-list"></div></section>
@@ -362,9 +357,9 @@
                   <th>Dimensions</th>
                   <th>Material</th>
                   <th>Boxes / pcs</th>
-                  <th>Price / m</th>
+                  <th>Unit Price</th>
                   <th>Availability</th>
-                  <th>Action</th>
+                  <th id="inventoryActionHeader">Action</th>
                 </tr>
               </thead>
               <tbody id="inventoryTable"></tbody>
@@ -385,7 +380,7 @@
         <section class="panel staff-management-panel">
           <div class="user-management-toolbar">
             <label class="user-search-field">
-              <span aria-hidden="true">âŒ•</span>
+              <span aria-hidden="true"><svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.8" cy="10.8" r="6.3"></circle><path d="m16 16 4.2 4.2"></path></svg></span>
               <input id="userSearchInput" type="search" placeholder="Search users" />
             </label>
             <label>
@@ -425,7 +420,6 @@
             <table class="user-management-table">
               <thead>
                 <tr>
-                  <th><input type="checkbox" id="selectAllUsers" aria-label="Select all users" /></th>
                   <th>Full Name</th>
                   <th>Email</th>
                   <th>Username</th>
@@ -459,18 +453,6 @@
       </section>
 
       <section class="content hidden" data-section="quotations">
-        <div class="section-hero quote-hero">
-          <div>
-            <p class="eyebrow">Sales operations</p>
-            <h2>Quotation</h2>
-            <p class="section-copy">Browse quotations issued by the mobile app and print confirmed orders for item preparation.</p>
-          </div>
-          <div class="quote-hero-status">
-            <span class="status-pill success" id="quoteWorkflowStatus">Read-only</span>
-            <small id="quoteWorkflowHint">Select an order</small>
-          </div>
-        </div>
-
         <div class="quote-layout">
           <div class="quote-workflow" hidden aria-label="Quotation workflow">
             <button class="quote-workflow-step active" type="button" data-quote-step="1">
@@ -488,7 +470,7 @@
           <section class="panel quote-builder-panel" hidden>
             <div class="panel-head">
               <div>
-                <p class="eyebrow">Step 1â€“2 Â· Customer request</p>
+                <p class="eyebrow">Step 1&ndash;2 &middot; Customer request</p>
                 <h3>Prepare the offer</h3>
                 <p class="panel-copy">The customer and request are carried into the quotation. Add one or more products, then adjust quantity, price, and discount.</p>
               </div>
@@ -588,7 +570,7 @@
                     <tr>
                       <th>Item</th>
                       <th>Qty</th>
-                      <th>Unit Price / m</th>
+                      <th>Unit Price</th>
                       <th>Total</th>
                     </tr>
                   </thead>
@@ -597,10 +579,10 @@
               </div>
 
               <div class="totals">
-                <div><span>Subtotal</span><strong id="quoteSubtotal">â‚±0</strong></div>
-                <div hidden><span>Discount amount</span><strong id="quoteDiscountAmount">â‚±0</strong></div>
-                <div hidden><span>VAT (12%)</span><strong id="quoteVat">â‚±0</strong></div>
-                <div class="grand"><span>Grand Total</span><strong id="quoteTotal">â‚±0</strong></div>
+                <div><span>Subtotal</span><strong id="quoteSubtotal">&#8369;0</strong></div>
+                <div hidden><span>Discount amount</span><strong id="quoteDiscountAmount">&#8369;0</strong></div>
+                <div hidden><span>VAT (12%)</span><strong id="quoteVat">&#8369;0</strong></div>
+                <div class="grand"><span>Grand Total</span><strong id="quoteTotal">&#8369;0</strong></div>
               </div>
 
               <div class="quote-item-grid quote-commercial-fields" hidden>
@@ -665,17 +647,17 @@
           <div class="sales-grid">
             <article class="mini-card actionable sales-today-card" id="salesTodayCard" role="button" tabindex="0">
               <span>Today</span>
-              <strong id="salesTodayValue">â‚±0</strong>
+              <strong id="salesTodayValue">&#8369;0</strong>
               <small id="salesTodayMeta">0 transactions</small>
             </article>
             <article class="mini-card">
               <span>This Week</span>
-              <strong id="salesWeekValue">â‚±0</strong>
+              <strong id="salesWeekValue">&#8369;0</strong>
               <small id="salesWeekMeta">No activity this week</small>
             </article>
             <article class="mini-card">
               <span>This Month</span>
-              <strong id="salesMonthValue">â‚±0</strong>
+              <strong id="salesMonthValue">&#8369;0</strong>
               <small id="salesMonthMeta">No sales recorded</small>
             </article>
           </div>
@@ -796,7 +778,7 @@
             </div>
             <div>
               <span>Total Sales</span>
-              <strong id="salesDayTotal">â‚±0</strong>
+              <strong id="salesDayTotal">&#8369;0</strong>
             </div>
           </div>
           <div class="sales-day-picker" id="salesDayPicker" aria-label="Select day"></div>
@@ -907,7 +889,7 @@
             <input class="hidden" type="file" id="panelImageFile" accept="image/*" />
           </div>
           <div class="model-upload-card" id="panelModelPreview">
-            <model-viewer id="panelModelViewer" class="panel-model-viewer" camera-controls auto-rotate shadow-intensity="0.7" hidden></model-viewer>
+            <model-viewer id="panelModelViewer" class="panel-model-viewer" camera-controls auto-rotate shadow-intensity="0.7" ar ar-modes="scene-viewer" ar-placement="wall" ar-scale="fixed" hidden></model-viewer>
             <div>
               <strong>3D Panel Model</strong>
               <small id="panelModelCaption">Optional .glb/.gltf for AR and 3D preview</small>
@@ -934,7 +916,13 @@
           <div class="split-fields">
             <label>Boxes <input id="panelQuantity" type="number" min="0" step="1" required /></label>
             <label>Units per Box <input id="panelUnitsPerBox" type="number" min="1" step="1" value="20" required /></label>
-            <label>Price per Meter <input id="panelPrice" type="number" min="0" step="0.01" required /></label>
+            <label>Unit Price <input id="panelPrice" type="number" min="0" step="0.01" required /></label>
+            <label>Price Unit
+              <select id="panelPriceUnit" required>
+                <option value="piece">Per piece</option>
+                <option value="meter">Per meter</option>
+              </select>
+            </label>
             <label>Availability
               <div class="availability-display" id="panelAvailabilityDisplay">In Stock</div>
             </label>

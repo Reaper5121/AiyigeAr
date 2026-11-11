@@ -21,6 +21,7 @@ import {
   panelWidth,
   panelThickness,
   panelUnitsPerBox,
+  panelPriceUnit,
   panelImagePreview,
   panelImageTitle,
   panelImageCaption,
@@ -46,6 +47,7 @@ import {
   formatInventoryQuantity
 } from "../core/utils.js";
 import { appState } from "../core/runtime.js";
+import { canManageInventory } from "../core/permissions.js";
 import { updateAvailabilityDisplay } from "./ui.js";
 import { renderDashboardMetrics } from "./ui.js";
 import { updateQuotationItemPreview } from "./quotes.js";
@@ -203,6 +205,7 @@ export function resetPanelEditor(title = "Add Product") {
   if (panelProductName) panelProductName.value = "";
   if (panelQuantity) panelQuantity.value = "";
   if (panelUnitsPerBox) panelUnitsPerBox.value = "";
+  if (panelPriceUnit) panelPriceUnit.value = "piece";
   if (panelLength) panelLength.value = "";
   if (panelWidth) panelWidth.value = "";
   if (panelThickness) panelThickness.value = "";
@@ -254,6 +257,9 @@ export function getFilteredInventory() {
 
 export function renderInventory(list = getFilteredInventory()) {
   const sortedList = [...list].sort(compareInventoryItems);
+  const canEditInventory = canManageInventory();
+  const actionHeader = document.getElementById("inventoryActionHeader");
+  if (actionHeader) actionHeader.hidden = !canEditInventory;
   // Rebuilding the inventory table also rebuilds the quotation product select.
   // Keep the active selection whenever the table is explicitly rerendered.
   const selectedQuotePanelId = quotePanel?.value || "";
@@ -281,20 +287,20 @@ export function renderInventory(list = getFilteredInventory()) {
       <td>${escapeHtml(formatPanelDimensions(item))}</td>
       <td>${escapeHtml(item.material)}</td>
       <td>${escapeHtml(formatInventoryQuantity(item))}</td>
-      <td>${formatPeso(item.pricePerMeter ?? item.price ?? 0)} /${item.priceUnit === "piece" ? "pc" : "m"}</td>
+      <td>${formatPeso(item.pricePerMeter ?? item.price ?? 0)} /${item.priceUnit === "meter" ? "m" : "pc"}</td>
       <td><span class="pill ${availabilityClass(normalizeAvailability(item.quantity))}">${escapeHtml(normalizeAvailability(item.quantity))}</span></td>
-      <td>
+      ${canEditInventory ? `<td class="inventory-action-cell">
         <div class="row-actions">
           <button type="button" class="action-btn action-btn-edit" data-edit="${item.id}">
             <span class="action-btn-icon" aria-hidden="true">✎</span>
             <span>Edit</span>
           </button>
           <button type="button" class="action-btn action-btn-delete" data-delete="${item.id}">
-            <span class="action-btn-icon" aria-hidden="true">×</span>
+            <span class="action-btn-icon" aria-hidden="true"><svg class="row-action-icon" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M5 7l1 14h12l1-14M9 7V4h6v3"/></svg></span>
             <span>Delete</span>
           </button>
         </div>
-      </td>
+      </td>` : ""}
     </tr>
   `).join("");
 

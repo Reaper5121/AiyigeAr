@@ -1,66 +1,64 @@
-# AR and Room Capture
+# Google Model Viewer and Room Capture
 
-## AR backends
+## Android product preview and AR
 
-- ARCore/SceneView remains the markerless AR path for Android phones where
-  Google Play Services for AR is supported and installed.
-- Phones that cannot run ARCore can use the integrated EasyAR Sense Native
-  path. The Android app bundles EasyAR Sense 4.11 Community, which includes
-  motion tracking and sparse spatial mapping. On the Redmi Turbo 3, EasyAR's
-  current device list rates motion tracking as Good.
-- EasyAR progressively maps the room and outlines detected planes. Hold and drag
-  the Ready panel card to place a panel on a detected surface; tap a placed
-  panel to select it, drag it to move, and pinch with two fingers to resize.
-  Tap another detected surface to add another panel. Delete and Reset manage
-  the layout.
-- The EasyAR camera now uses 640-pixel capture, 20 fps rendering, and SLAM mode
-  to reduce device workload. The camera is stopped when the AR view pauses.- The CameraX screen-space overlay remains a manual fallback when neither
-  spatial backend can start. It does not scan or anchor content to the room.
+- The Android customer app uses the Google `<model-viewer>` web component for
+  bundled 3D previews and AR launch. Its script is packaged at
+  `app/src/main/assets/model-viewer.min.js` and served to WebView through
+  AndroidX WebKit's asset loader.
+- AR is restricted to `ar-modes="scene-viewer"`; WebXR is not selected. The
+  AR action opens Google Scene Viewer and requests wall placement with
+  `ar-placement="wall"`. Scene Viewer receives one selected GLB at a time.
+- The AR tab opens on the live CameraX room preview. The selected GLB preview
+  opens only after the customer presses **View panel in AR**; its **Room camera**
+  control returns to the live camera. The app must not automatically replace
+  the camera with the model preview when a product is selected or the app resumes.
+- The AR tab keeps product quantity and quotation handling in the app. It does
+  not build a custom multi-panel placement grid or derive quote quantity from
+  tracked anchors. Customers set quantity explicitly before requesting a quote.
+- The existing CameraX camera remains only for optional room-reference photos.
+  It is unbound while the model viewer is open so it does not compete with
+  Scene Viewer for camera access.
+- GLB URLs passed to Scene Viewer must be reachable by Google's app on the
+  device. Public backend URLs work best; localhost-only development URLs may
+  not be reachable by Scene Viewer.
+- The embedded WebView also loads bundled `/3dPanels/*.glb` files through a
+  local asset response, with CORS enabled. The Node backend adds CORS headers to
+  static files so externally hosted development GLBs can be fetched by the
+  viewer. A model-load error is shown in the viewer, and the Scene Viewer
+  handoff is blocked until the model has loaded.
 
-## EasyAR local setup
+## Runtime requirements and limitations
 
-The app reads `easyar.licenseKey` from the root `local.properties` file at
-build time. Add the EasyAR Sense license created for Android package
-`com.aiyige.customer.compose`:
+- The Android app no longer embeds the ARCore or EasyAR SDKs. Google Scene
+  Viewer still requires a compatible Android device, the Google app, and
+  Google Play Services for AR to provide its native AR mode. Without those,
+  Scene Viewer may fall back to its 3D viewer.
+- Scene Viewer owns the camera, tracking, surface detection, and placement UI.
+  The app does not receive anchors or placed-object callbacks, so it cannot
+  build a multi-panel wall layout or automatically count panels from AR.
+- Wall placement aligns the GLB bounding box to a vertical surface. Check each
+  source model's axes, origin, dimensions, and front/back orientation before
+  relying on it for customer-facing visualization.
 
-```properties
-easyar.licenseKey=YOUR_EASYAR_LICENSE_KEY
-```
+## Web product viewer
 
-Do not commit `local.properties` or expose the key in chat. EasyAR Personal is
-for evaluation only, does not permit commercial use, and displays a watermark;
-choose a license that matches the app's intended release.
+The admin panel model editor uses the same model-viewer library. Its preview is
+configured to launch Scene Viewer only, request wall placement, and keep the
+source model scale fixed in AR.
 
-The SDK AAR used by the app is `android-customer-compose/app/libs/EasyAR.aar`.
-It came from EasyAR Sense 4.11.0 Community. The unpacked vendor archive is not
-needed to build once this AAR is present.
+## Validation
 
-## Room placement behavior
+The debug APK build verifies Kotlin compilation and packaging. Real wall
+placement still needs a manual check on a supported physical Android phone:
 
-- EasyAR tracks phone motion and detects room planes while the customer scans.
-  Detection quality depends on lighting, visible texture, camera motion, and
-  device calibration. Guide customers to move slowly and sweep each wall and
-  the ceiling.
-- Planes and placements are session-local. This is progressive room mapping,
-  not an automatically complete architectural floor plan.
-- Panel width and height are derived from the selected product's stated size in
-  millimeters and rendered at tracked scale. Resizing preserves that ratio.
-- The camera scan does not create an order or quotation. Room capture remains
-  an optional reference asset attached to the customer flow.
+1. Open the AR tab and choose a panel with a valid GLB URL.
+2. Tap the model-viewer AR button and confirm Scene Viewer opens.
+3. Place the model on a wall and check its orientation and apparent scale.
+4. Return to the app and confirm the selected quantity still drives the quote.
+5. Capture a room photo separately if it should accompany the quote.
 
-## Validation status
+References:
 
-The Android debug APK with EasyAR Sense and the local license is installed on
-Redmi Turbo 3. The camera preview and motion tracking work, but the on-device
-status reported no detected planes, so panel placement is not yet validated.
-The latest build lowers camera workload and changes resize to tap-to-select
-followed by a two-finger pinch. Verify wall and ceiling plane detection,
-placement across camera movement, and known-size accuracy on the phone. A
-successful build alone does not verify tracking or optical alignment.
-Official references:
-
-- [EasyAR supported motion-tracking devices](https://www.easyar.com/doc/en/develop/motion-tracking/devices-easyar.html)
-- [EasyAR native Android setup](https://help.easyar.com/EasyAR%20Sense/latest/GettingStarted/Setting-up-EasyAR-Android.html)
-- [EasyAR native plane data](https://www.easyar.com/doc/en/api/native/easyar.PlaneData.html)
-- [EasyAR Sense license terms](https://www.easyar.com/doc/en/develop/license-sense.html)
-- [ARCore supported devices](https://developers.google.com/ar/devices)
+- [Google model-viewer AR attributes](https://modelviewer.dev/docs/index.html)
+- [Google Scene Viewer requirements](https://developers.google.com/ar/develop/scene-viewer)
